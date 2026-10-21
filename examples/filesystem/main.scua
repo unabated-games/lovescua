@@ -1,0 +1,46 @@
+import love
+import filesystem
+import json
+
+record Save { score: int, player: string }
+let message = ""
+let ticks = 0
+
+fn must(result)
+  match result
+    Ok(value) -> return value
+    Error(error) -> assert(false, tostring(error))
+  end
+end
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / resources and saves")
+  message = must(filesystem.read_text("level.txt"))
+  assert(filesystem.exists("level.txt"))
+  assert(must(filesystem.lines("level.txt")).len() >= 3)
+  assert(must(filesystem.get_info("level.txt")).size > 0)
+  assert(must(filesystem.get_directory_items("")).contains("level.txt"))
+  must(filesystem.create_directory("saves"))
+  let save: Save = { score = 42, player = "SCUA" }
+  must(filesystem.write_atomic("saves/demo.json", json.encode(save)))
+  let loaded = must(json.decode(must(filesystem.read_text("user:saves/demo.json"))))
+  assert(loaded.score == 42 and loaded.player == "SCUA")
+  must(filesystem.rename("saves/demo.json", "saves/renamed.json"))
+  must(filesystem.remove_file("saves/renamed.json"))
+  assert(not filesystem.exists("user:saves/renamed.json"))
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.6, 0.9, 1, 1))
+  love.graphics.printf(message, vec2(30, 100), 900, "left")
+  love.graphics.print("JSON save / atomic replace / rename / remove — passed", vec2(30, 250))
+end
+
+fn verify()
+  assert(ticks == 3)
+  print("PASS: resource reads and explicit user-folder saves")
+end

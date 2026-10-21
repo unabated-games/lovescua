@@ -1,3 +1,12 @@
+This is the **LÖVE + SCUA fork**. A working macOS host and SCUA example are
+available; see [SCUA.md](SCUA.md) for build instructions, the native interface
+and the current integration scope. Run the prepared build with
+`./build/lovescua examples/sprite` or `./build/lovescua examples/bounce`.
+
+The original upstream README follows.
+
+---
+
 LÖVE is an *awesome* framework you can use to make 2D games in Lua. It's free, open-source, and works on Windows, macOS, Linux, Android, and iOS.
 
 [![Build Status: Github CI](https://github.com/love2d/love/workflows/continuous-integration/badge.svg)](https://github.com/love2d/love/actions?query=workflow%3Acontinuous-integration)

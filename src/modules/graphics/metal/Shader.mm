@@ -450,7 +450,17 @@ void Shader::compileFromGLSLang(id<MTLDevice> device, const glslang::TProgram &p
 			binding.stage = msl.get_execution_model();
 			binding.binding = msl.get_decoration(resource.id, spv::DecorationBinding);
 			binding.desc_set = msl.get_decoration(resource.id, spv::DecorationDescriptorSet);
-			binding.msl_buffer = metalBufferIndices[stageindex]++;
+			auto it = reflection.storageBuffers.find(canonicaliizeUniformName(resource.name));
+			if (it == reflection.storageBuffers.end())
+			{
+				handleUnknownUniformName(resource.name.c_str());
+				continue;
+			}
+
+			// SCUA fork: reserve a distinct Metal slot for each buffer in an array.
+			binding.count = it->second.count;
+			binding.msl_buffer = metalBufferIndices[stageindex];
+			metalBufferIndices[stageindex] += binding.count;
 			msl.add_msl_resource_binding(binding);
 		}
 
@@ -629,8 +639,10 @@ void Shader::compileFromGLSLang(id<MTLDevice> device, const glslang::TProgram &p
 			for (int i = 0; i < u.count; i++)
 			{
 				auto &b = textureBindings[u.location + i];
-				b.textureStages[stageindex] = (uint8) texturebinding;
-				b.samplerStages[stageindex] = (uint8) samplerbinding;
+				// SCUA fork: array elements occupy consecutive resource slots.
+				b.textureStages[stageindex] = (uint8) (texturebinding + i);
+				b.samplerStages[stageindex] = samplerbinding == (uint32)-1
+					? LOVE_UINT8_MAX : (uint8) (samplerbinding + i);
 			}
 
 			BuiltinUniform builtin;
@@ -685,7 +697,7 @@ void Shader::compileFromGLSLang(id<MTLDevice> device, const glslang::TProgram &p
 			}
 
 			for (int i = 0; i < u.count; i++)
-				bufferBindings[u.location + i].stages[stageindex] = (uint8) bufferbinding;
+				bufferBindings[u.location + i].stages[stageindex] = (uint8) (bufferbinding + i);
 		}
 	}
 

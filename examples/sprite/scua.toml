@@ -1,0 +1,23 @@
+[package]
+scua-version = "0.37"
+
+[tooling]
+declarations = [
+  "../../scua/decls/love_audio.scua",
+  "../../scua/decls/love_data.scua",
+  "../../scua/decls/love_event.scua",
+  "../../scua/decls/love_graphics.scua",
+  "../../scua/decls/love_image.scua",
+  "../../scua/decls/love_joystick.scua",
+  "../../scua/decls/love_keyboard.scua",
+  "../../scua/decls/love_math.scua",
+  "../../scua/decls/love_mouse.scua",
+  "../../scua/decls/love_physics.scua",
+  "../../scua/decls/love_sensor.scua",
+  "../../scua/decls/love_sound.scua",
+  "../../scua/decls/love_system.scua",
+  "../../scua/decls/love_timer.scua",
+  "../../scua/decls/love_touch.scua",
+  "../../scua/decls/love_video.scua",
+  "../../scua/decls/love_window.scua",
+]

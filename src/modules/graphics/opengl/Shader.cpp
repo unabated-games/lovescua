@@ -220,7 +220,16 @@ void Shader::mapActiveUniforms()
 			GLsizei namelength = 0;
 			glGetProgramResourceName(program, GL_SHADER_STORAGE_BLOCK, sindex, 2048, &namelength, namebuffer);
 
-			std::string name = canonicaliizeUniformName(std::string(namebuffer, namelength));
+			// SCUA fork: storage arrays have a separate GL resource for each element.
+			std::string expandedname(namebuffer, namelength);
+			auto element = reflection.storageBufferElements.find(expandedname);
+			if (element == reflection.storageBufferElements.end())
+			{
+				handleUnknownUniformName(expandedname.c_str());
+				continue;
+			}
+			const std::string &name = element->second.first;
+			int arrayindex = element->second.second;
 
 			const auto &uniformit = reflection.storageBuffers.find(name);
 			if (uniformit == reflection.storageBuffers.end())
@@ -244,11 +253,11 @@ void Shader::mapActiveUniforms()
 			// Unlike local uniforms and attributes, OpenGL doesn't auto-assign storage
 			// block bindings if they're unspecified in the shader. So we overwrite them
 			// regardless, here.
-			u.ints[0] = nextstoragebufferbinding++;
-			glShaderStorageBlockBinding(program, sindex, u.ints[0]);
+			u.ints[arrayindex] = nextstoragebufferbinding++;
+			glShaderStorageBlockBinding(program, sindex, u.ints[arrayindex]);
 
 			BufferBinding binding;
-			binding.bindingindex = u.ints[0];
+			binding.bindingindex = u.ints[arrayindex];
 			binding.buffer = 0;
 
 			if (binding.bindingindex >= 0)
@@ -261,13 +270,20 @@ void Shader::mapActiveUniforms()
 				if (u.access & ACCESS_WRITE)
 				{
 					p.second = (int)activeWritableStorageBuffers.size();
-					activeWritableStorageBuffers.push_back(activeBuffers[u.resourceIndex]);
+					activeWritableStorageBuffers.push_back(activeBuffers[u.resourceIndex + arrayindex]);
 				}
 
 				storageBufferBindingIndexToActiveBinding[binding.bindingindex] = p;
 			}
 
-			sendBuffers(&u, &activeBuffers[u.resourceIndex], u.count, true);
+		}
+
+		// Bind defaults only after all array elements have their binding indices.
+		for (auto &entry : reflection.storageBuffers)
+		{
+			auto &u = entry.second;
+			if (u.active)
+				sendBuffers(&u, &activeBuffers[u.resourceIndex], u.count, true);
 		}
 	}
 
@@ -607,6 +623,8 @@ void Shader::applyBuffer(const UniformInfo *info, int i, love::graphics::Buffer 
 	{
 		GLuint glbuffer = (GLuint)buffer->getHandle();
 		int bindingindex = info->ints[i];
+		if (bindingindex < 0)
+			return; // This array element was optimized out.
 
 		if (shaderactive)
 			gl.bindIndexedBuffer(glbuffer, BUFFERUSAGE_SHADER_STORAGE, bindingindex);

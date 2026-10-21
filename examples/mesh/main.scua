@@ -1,0 +1,61 @@
+import love
+
+record Vertex { position: vec2, uv: vec2, color: vec4 }
+let mesh = nil
+let cached_text = nil
+let canvas = nil
+let ticks = 0
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / meshes, cached text and texture readback")
+  let vertices: { Vertex } = [
+    { position = vec2(-150, -130), uv = vec2(0, 0), color = vec4(1, 0.2, 0.3, 1) },
+    { position = vec2(150, -130), uv = vec2(1, 0), color = vec4(0.2, 1, 0.4, 1) },
+    { position = vec2(150, 130), uv = vec2(1, 1), color = vec4(0.2, 0.4, 1, 1) },
+    { position = vec2(-150, 130), uv = vec2(0, 1), color = vec4(1, 0.8, 0.2, 1) },
+  ]
+  mesh = love.graphics.new_mesh(vertices, "triangles")
+  love.graphics.mesh_set_vertex_map(mesh, [0, 1, 2, 0, 2, 3])
+  assert(love.graphics.mesh_count(mesh) == 4)
+  love.graphics.mesh_set_vertex(mesh, 0, vertices[0])
+  let font = love.graphics.new_font(24)
+  cached_text = love.graphics.new_text(font, "Cached text keeps its font alive")
+  assert(love.graphics.text_dimensions(cached_text).x > 100)
+  love.graphics.text_add(cached_text, "SCUA records describe native mesh vertices", vec2(0, 40))
+  love.graphics.release(font)
+  canvas = love.graphics.new_canvas(32, 32)
+  assert(love.graphics.texture_info(canvas).render_target)
+  let pixels = love.image.new_data(2, 2)
+  love.image.set_pixel(pixels, 0, 0, vec4(1, 0.5, 0.25, 1))
+  let texture = love.graphics.new_image_from_data(pixels)
+  love.graphics.texture_set_wrap(texture, "repeat", "mirroredrepeat")
+  love.image.set_pixel(pixels, 0, 0, vec4(0, 1, 0, 1))
+  love.graphics.texture_replace_pixels(texture, pixels, 0, 0)
+  if love.graphics.is_supported("copytexturetobuffer") then
+    let result = love.graphics.texture_readback(texture)
+    assert(love.image.get_pixel(result, 0, 0).y == 1)
+  end
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+end
+
+fn draw()
+  love.graphics.set_canvas(canvas)
+  love.graphics.clear(vec4(0.2, 0.4, 0.6, 1))
+  love.graphics.set_canvas(nil)
+  love.graphics.draw_mesh(mesh, vec2(480, 300), love.timer.get_elapsed() * 0.2)
+  love.graphics.draw_text(cached_text, vec2(30, 30))
+end
+
+fn verify()
+  assert(ticks == 3)
+  let readback = love.graphics.texture_readback(canvas)
+  let color = love.image.get_pixel(readback, 0, 0)
+  assert(abs(color.x - 0.2) < 0.01 and abs(color.y - 0.4) < 0.01 and abs(color.z - 0.6) < 0.01)
+  love.graphics.text_clear(cached_text)
+  love.graphics.text_set_wrapped(cached_text, "one two three", 100, "left")
+  assert(love.graphics.text_dimensions(cached_text).y > 24)
+  print("PASS: meshes, cached text, texture mutation and readback")
+end

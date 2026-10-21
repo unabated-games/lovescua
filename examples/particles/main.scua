@@ -1,0 +1,67 @@
+import love
+import math
+
+let batch = nil
+let particles = nil
+let ticks = 0
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / sprite batches and particles")
+  let pixels = love.image.new_data(8, 8)
+  for y in 0:8 do
+    for x in 0:8 do
+      let edge = x == 0 or x == 7 or y == 0 or y == 7
+      love.image.set_pixel(pixels, x, y, if edge then vec4(0.2, 0.5, 0.8, 1) else vec4(1, 1, 1, 1) end)
+    end
+  end
+  let image = love.graphics.new_image_from_data(pixels)
+  love.graphics.set_filter(image, "nearest")
+  batch = love.graphics.new_sprite_batch(image, 128)
+  for i in 0:100 do
+    love.graphics.batch_set_color(batch, vec4(0.2 + (i % 10) * 0.07, 0.7, 0.9, 1))
+    assert(love.graphics.batch_add(batch, vec2(30 + (i % 20) * 44, 100 + floor(i / 20) * 44), 0, vec2(3, 3)) == i)
+  end
+  assert(love.graphics.batch_count(batch) == 100)
+  let quad = love.graphics.new_quad(image, vec2(0, 0), vec2(4, 4))
+  assert(love.graphics.batch_add_quad(batch, quad, vec2(920, 100), 0, vec2(6, 6)) == 100)
+  let particle_image = love.graphics.new_image_from_data(pixels)
+  particles = love.graphics.new_particles(particle_image, 1024)
+  love.graphics.particles_set_lifetime(particles, 1, 2)
+  love.graphics.particles_set_rate(particles, 80)
+  love.graphics.particles_set_direction(particles, -1.57079632679)
+  love.graphics.particles_set_spread(particles, 1.2)
+  love.graphics.particles_set_speed(particles, 80, 180)
+  love.graphics.particles_set_acceleration(particles, vec2(0, 80))
+  love.graphics.particles_set_size(particles, 2)
+  love.graphics.particles_set_colors(particles, vec4(1, 0.8, 0.3, 1), vec4(1, 0.2, 0.1, 0))
+  love.graphics.particles_emit(particles, 12)
+  love.graphics.particles_start(particles)
+  -- The emitter retains its native texture after this wrapper closes.
+  love.graphics.release(particle_image)
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  love.graphics.particles_update(particles, dt)
+  love.graphics.batch_set(batch, 0, vec2(42, 110), love.timer.get_elapsed(), vec2(3, 3))
+end
+
+fn draw()
+  love.graphics.set_color(vec4(1, 1, 1, 1))
+  love.graphics.draw_batch(batch, vec2(0, 0))
+  love.graphics.draw_particles(particles, vec2(480, 530))
+  love.graphics.print("101 sprites in a native batch / retained textures / native particle emitter", vec2(30, 30))
+end
+
+fn verify()
+  assert(ticks == 3)
+  assert(love.graphics.batch_count(batch) == 101)
+  assert(love.graphics.particles_count(particles) >= 12)
+  let copy = love.graphics.particles_clone(particles)
+  assert(love.graphics.particles_is_empty(copy))
+  love.graphics.particles_reset(particles)
+  assert(love.graphics.particles_is_empty(particles))
+  love.graphics.batch_clear(batch)
+  assert(love.graphics.batch_count(batch) == 0)
+  print("PASS: sprite batches and particles")
+end

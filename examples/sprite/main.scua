@@ -1,0 +1,115 @@
+import love
+import assets
+import controller
+
+let sheet = nil
+let frames = []
+let ticks = 0
+let autoplay = true
+let elapsed = 0.0
+let player = controller.new_player(vec2(340, 245))
+const directions = [vec2(1, 0), vec2(0, 1), vec2(-1, 0), vec2(0, -1)]
+const labels = ["DOWN", "LEFT", "RIGHT", "UP"]
+
+fn load()
+  love.window.set_mode(960, 640)
+  love.window.set_title("LÖVE + SCUA • sprite lab")
+  sheet = assets.image("res:robot.png")
+  love.graphics.set_filter(sheet, "nearest")
+  for row in 0:4 do
+    let animation = []
+    for column in 0:4 do
+      animation.push(love.graphics.new_quad(sheet, vec2(column * 32, row * 32), vec2(32, 32)))
+    end
+    frames.push(animation)
+  end
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  elapsed = elapsed + dt
+  let direction = vec2(0, 0)
+  if love.keyboard.is_down("Left") or love.keyboard.is_down("A") then direction = direction + vec2(-1, 0) end
+  if love.keyboard.is_down("Right") or love.keyboard.is_down("D") then direction = direction + vec2(1, 0) end
+  if love.keyboard.is_down("Up") or love.keyboard.is_down("W") then direction = direction + vec2(0, -1) end
+  if love.keyboard.is_down("Down") or love.keyboard.is_down("S") then direction = direction + vec2(0, 1) end
+  if direction.length() > 0 then autoplay = false end
+  if autoplay then direction = directions[floor((ticks - 1) / 60) % 4] end
+  let size = love.graphics.dimensions()
+  let left = min(72, size.x * 0.2)
+  let top = min(190, size.y * 0.4)
+  controller.step(player, direction, dt, vec4(left, top, max(left, size.x - left), max(top, size.y - 172)))
+end
+
+fn draw()
+  let size = love.graphics.dimensions()
+  love.graphics.clear(vec4(0.035, 0.055, 0.08, 1))
+  love.graphics.set_color(vec4(0.2, 0.83, 0.7, 1))
+  love.graphics.rectangle("fill", vec2(28, 29), vec2(4, 44))
+  love.graphics.print("SCUA / SPRITE LAB", vec2(46, 30))
+  love.graphics.set_color(vec4(0.64, 0.73, 0.84, 1))
+  love.graphics.print("Arrow keys or WASD to move   /   Space: autoplay   /   R: reset   /   Esc: quit", vec2(46, 57))
+  love.graphics.print("One PNG. Sixteen sprite regions. Managed textures. Pure SCUA animation.", vec2(46, 88))
+  love.graphics.set_color(vec4(0.07, 0.11, 0.15, 1))
+  love.graphics.rectangle("fill", vec2(24, 128), vec2(size.x - 48, max(1, size.y - 286)))
+  love.graphics.set_color(vec4(0.10, 0.17, 0.21, 1))
+  let x = 48
+  while x < size.x - 24 do
+    love.graphics.rectangle("fill", vec2(x, 128), vec2(1, max(1, size.y - 286)))
+    x = x + 32
+  end
+  let y = 144
+  while y < size.y - 158 do
+    love.graphics.rectangle("fill", vec2(24, y), vec2(size.x - 48, 1))
+    y = y + 32
+  end
+  love.graphics.set_color(vec4(0.10, 0.32, 0.31, 1))
+  love.graphics.circle("fill", player.position + vec2(0, -7), 37)
+  love.graphics.set_color(vec4(1, 1, 1, 1))
+  love.graphics.draw_quad(frames[player.facing][player.frame], player.position, 0.0, vec2(4, 4), vec2(16, 28))
+  love.graphics.set_color(vec4(0.42, 0.87, 0.75, 1))
+  let mode = if autoplay then "AUTOPLAY" else "YOU ARE IN CONTROL" end
+  love.graphics.print(`{mode}   /   {player.facing}   /   frame {player.frame + 1} of 4`, vec2(44, size.y - 142))
+  love.graphics.set_color(vec4(0.64, 0.73, 0.84, 1))
+  love.graphics.print("DIRECTION PREVIEWS", vec2(44, size.y - 112))
+  let preview = floor(elapsed * 8) % 4
+  for row in 0:4 do
+    love.graphics.set_color(vec4(1, 1, 1, 1))
+    love.graphics.draw_quad(frames[row][preview], vec2(76 + row * 140, size.y - 28), 0.0, vec2(2, 2), vec2(16, 28))
+    love.graphics.set_color(vec4(0.64, 0.73, 0.84, 1))
+    love.graphics.print(labels[row], vec2(104 + row * 140, size.y - 60))
+  end
+  love.graphics.set_color(vec4(1, 1, 1, 1))
+  love.graphics.draw(sheet, vec2(size.x - 166, size.y - 142))
+end
+
+fn keypressed(key: string)
+  match key
+    "Escape" -> love.event.quit()
+    "Space" -> autoplay = not autoplay
+    "R" -> do
+      player.position = vec2(340, 245)
+      player.clock = 0.0
+      player.frame = 0
+      ticks = 0
+      autoplay = true
+    end
+    _ -> nil
+  end
+end
+
+fn verify()
+  assert(ticks == 120)
+  assert(love.graphics.image_dimensions(sheet) == vec2(128, 128))
+  assert(love.graphics.quad_dimensions(frames[0][0]) == vec2(32, 32))
+  assert((player.position - vec2(520, 425)).length() < 0.02)
+  assert(player.facing == controller.Facing.Down)
+  assert(player.motion == controller.Motion.Walking)
+  assert(player.frame >= 0 and player.frame < 4)
+  assert(frames.len() == 4 and frames[0].len() == 4)
+  keypressed("Space")
+  assert(not autoplay)
+  keypressed("R")
+  assert(autoplay and player.position == vec2(340, 245))
+  print("PASS: sprites (image loading, regions, movement, animation, controls)")
+end

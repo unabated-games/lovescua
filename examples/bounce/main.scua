@@ -1,0 +1,118 @@
+import love
+
+record Ball {
+  position: vec2,
+  velocity: vec2,
+  radius: float = 22.0,
+  color: vec4,
+}
+
+let ball: Ball = {
+  position = vec2(160, 220),
+  velocity = vec2(310, 190),
+  color = vec4(0.22, 0.88, 0.72, 1),
+}
+let ticks = 0
+let bounces = 0
+let paused = false
+let trail = []
+
+-- Leave room for the header/footer at normal sizes; keep the ball in a valid
+-- arena when the user shrinks the window.
+fn arena(size: vec2)
+  let top = min(150, size.y * 0.2 + 22)
+  let bottom = size.y - min(70, size.y * 0.1 + 6)
+  return { top = top, bottom = bottom }
+end
+
+fn load()
+  love.window.set_mode(960, 640)
+  love.window.set_title("LÖVE + SCUA 0.37 • bouncing ball")
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  if paused then return end
+  let bounds = love.graphics.dimensions()
+  let area = arena(bounds)
+  ball.radius = min(22, min(bounds.x, area.bottom - area.top) * 0.25)
+  let next = ball.position + ball.velocity * dt
+  let velocity = ball.velocity
+  if next.x < ball.radius or next.x > bounds.x - ball.radius then
+    velocity = vec2(-velocity.x, velocity.y)
+    bounces = bounces + 1
+  end
+  if next.y < area.top + ball.radius or next.y > area.bottom - ball.radius then
+    velocity = vec2(velocity.x, -velocity.y)
+    bounces = bounces + 1
+  end
+  ball.velocity = velocity
+  ball.position = vec2(
+    clamp(next.x, ball.radius, bounds.x - ball.radius),
+    clamp(next.y, area.top + ball.radius, area.bottom - ball.radius)
+  )
+  trail.push(ball.position)
+  if trail.len() > 24 then trail = trail[1:] end
+end
+
+fn draw()
+  let size = love.graphics.dimensions()
+  let area = arena(size)
+  love.graphics.clear(vec4(0.04, 0.05, 0.09, 1))
+  love.graphics.set_color(vec4(0.12, 0.15, 0.23, 1))
+  love.graphics.rectangle("fill", vec2(0, area.top), vec2(size.x, area.bottom - area.top))
+  love.graphics.set_color(vec4(0.9, 0.94, 1, 1))
+  love.graphics.print("LÖVE + SCUA", vec2(32, 30))
+  love.graphics.set_color(vec4(0.55, 0.65, 0.8, 1))
+  love.graphics.print("C++ engine. SCUA game logic. Native vectors across the boundary.", vec2(32, 62))
+  love.graphics.print(`Frame {ticks}   |   Bounces {bounces}   |   Space: pause   R: reset   Esc: quit`, vec2(32, 92))
+  let index = 0
+  for point in trail do
+    let opacity = (index + 1) / 24.0 * 0.35
+    love.graphics.set_color(vec4(ball.color.x, ball.color.y, ball.color.z, opacity))
+    love.graphics.circle("fill", point, ball.radius * 0.7)
+    index = index + 1
+  end
+  love.graphics.set_color(ball.color)
+  love.graphics.circle("fill", ball.position, ball.radius)
+  love.graphics.set_color(vec4(0.9, 1, 1, 1))
+  love.graphics.circle("line", ball.position, ball.radius + 4)
+  love.graphics.set_color(vec4(0.55, 0.65, 0.8, 1))
+  love.graphics.print(`position {ball.position}   velocity {ball.velocity}`, vec2(32, size.y - 42))
+end
+
+fn keypressed(key: string)
+  match key
+    "Escape" -> love.event.quit()
+    "Space" -> paused = not paused
+    "R" -> do
+      ball.position = vec2(160, 220)
+      ball.velocity = vec2(310, 190)
+      trail = []
+      bounces = 0
+    end
+    _ -> nil
+  end
+end
+
+-- Called only with --verify. The smoke test advances 120 fixed 1/60 s steps.
+fn verify()
+  assert(ticks == 120)
+  assert(bounces == 1)
+  assert(abs(ball.position.x - 780) < 0.02)
+  assert(ball.position.y > 490 and ball.position.y < 500)
+  assert(ball.velocity.y == -190)
+  assert(trail.len() == 24)
+  keypressed("Space")
+  assert(paused)
+  let before = ball.position
+  update(0.1)
+  assert(ball.position == before)
+  keypressed("Space")
+  assert(not paused)
+  keypressed("R")
+  assert(ball.position == vec2(160, 220))
+  assert(ball.velocity == vec2(310, 190))
+  assert(bounces == 0 and trail.len() == 0)
+  print("PASS: bounce (120 updates, vector motion, wall collision, trail)")
+end

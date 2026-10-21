@@ -452,7 +452,8 @@ Shader *Graphics::newComputeShader(const std::string &source, const Shader::Comp
 
 	// Don't bother caching compute shader intermediate source, since there
 	// shouldn't be much reuse.
-	stages[SHADERSTAGE_COMPUTE].set(newShaderStage(SHADERSTAGE_COMPUTE, source, options, info, false));
+	// SCUA fork: adopt the newly acquired stage reference, matching newShader.
+	stages[SHADERSTAGE_COMPUTE].set(newShaderStage(SHADERSTAGE_COMPUTE, source, options, info, false), Acquire::NORETAIN);
 
 	return newShaderInternal(stages, options);
 }
@@ -2350,7 +2351,8 @@ void Graphics::drawFromShaderIndirect(Buffer *indexbuffer, Buffer *indirectargs,
 	cmd.primitiveType = PRIMITIVE_TRIANGLES;
 	cmd.indexType = getIndexDataType(indexbuffer->getDataMember(0).decl.format);
 	cmd.indirectBuffer = indirectargs;
-	cmd.indexBufferOffset = argsindex * indirectargs->getArrayStride();
+	// SCUA fork: select the indirect command, keeping the index buffer at its base.
+	cmd.indirectBufferOffset = argsindex * indirectargs->getArrayStride();
 	cmd.texture = getTextureOrDefaultForActiveShader(maintexture);
 
 	draw(cmd);

@@ -48,13 +48,18 @@ bool OggDemuxer::readPage(bool erroreof)
 	char *syncBuffer = nullptr;
 	while (ogg_sync_pageout(&sync, &page) != 1)
 	{
-		if (syncBuffer && !streamInited && ogg_stream_check(&stream))
+		// SCUA fork: never inspect an ogg_stream_state before initialization.
+		if (streamInited && ogg_stream_check(&stream))
 			throw love::Exception("Invalid stream");
 
 		syncBuffer = ogg_sync_buffer(&sync, 8192);
 		size_t read = file->read(syncBuffer, 8192);
-		if (read == 0 && erroreof)
-			return false;
+		// SCUA fork: malformed/truncated resources must not spin forever at EOF.
+		if (read == 0)
+		{
+			if (erroreof) return false;
+			throw love::Exception("Truncated Ogg video stream");
+		}
 
 		ogg_sync_wrote(&sync, read);
 	}

@@ -1,0 +1,60 @@
+import love
+import math
+import bytes
+
+let curve = nil
+let ticks = 0
+let dots = []
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / math and binary data")
+  let rng = love.math.new_random(1234)
+  let state = love.math.random_state(rng)
+  let first = love.math.random(rng)
+  love.math.random_set_state(rng, state)
+  assert(love.math.random(rng) == first)
+  for i in 0:48 do
+    dots.push(vec2(love.math.random_int(rng, 30, 930), love.math.random_int(rng, 100, 400)))
+  end
+  let transform = love.math.new_transform()
+  love.math.transform_translate(transform, vec2(10, 20))
+  love.math.transform_scale(transform, vec2(2, 3))
+  assert(love.math.transform_point(transform, vec2(5, 5)) == vec2(20, 35))
+  let inverse = love.math.transform_inverse(transform)
+  assert((love.math.transform_point(inverse, vec2(20, 35)) - vec2(5, 5)).length() < 0.001)
+  curve = love.math.new_curve([vec2(30, 480), vec2(200, 30), vec2(700, 600), vec2(930, 160)])
+  assert(love.math.curve_degree(curve) == 3)
+  assert(love.math.curve_evaluate(curve, 0) == vec2(30, 480))
+  assert(love.math.is_convex([vec2(0, 0), vec2(20, 0), vec2(0, 20)]))
+  assert(love.math.triangulate([vec2(0, 0), vec2(20, 0), vec2(20, 20), vec2(0, 20)]).len() == 6)
+  let input = bytes.from_string("hello SCUA / hello LÖVE")
+  for format in ["zlib", "gzip", "deflate", "lz4"] do
+    let encoded = love.data.compress(format, input)
+    assert(love.data.decompress(format, encoded) == input)
+  end
+  for format in ["hex", "base64"] do
+    assert(love.data.decode(format, love.data.encode(format, input)) == input)
+  end
+  assert(love.data.encode("hex", love.data.hash("sha256", bytes.from_string("abc"))) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.3, 0.7, 1, 1))
+  love.graphics.points(dots)
+  love.graphics.set_line_width(4)
+  love.graphics.set_color(vec4(1, 0.7, 0.3, 1))
+  love.graphics.line(love.math.curve_render(curve, 6))
+  let point = love.math.curve_evaluate(curve, (math.sin(love.timer.get_elapsed()) + 1) / 2)
+  love.graphics.set_color(vec4(0.3, 1, 0.7, 1))
+  love.graphics.circle("fill", point, 12)
+  love.graphics.print("Seeded randomness / Bezier curves / native codecs and hashes", vec2(30, 30))
+end
+
+fn verify()
+  assert(ticks == 3)
+  print("PASS: math and data")
+end

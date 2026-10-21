@@ -56,7 +56,8 @@ ModPlugDecoder::ModPlugDecoder(Stream *stream, int bufferSize)
 	settings.mBassRange = 0;
 	settings.mSurroundDepth = 0;
 	settings.mSurroundDelay = 0;
-	settings.mLoopCount = -1;
+	// SCUA fork: EOF must be observable; playback sources implement explicit looping.
+	settings.mLoopCount = 0;
 
 	ModPlug_SetSettings(&settings);
 
@@ -114,6 +115,7 @@ int ModPlugDecoder::decode()
 bool ModPlugDecoder::seek(double s)
 {
 	ModPlug_Seek(plug, (int)(s*1000.0));
+	eof = false; // SCUA fork: seeking after EOF makes the decoder readable again.
 	return true;
 }
 
@@ -122,6 +124,8 @@ bool ModPlugDecoder::rewind()
 	// Let's reload.
 	ModPlug_Unload(plug);
 	plug = ModPlug_Load(data->getData(), (int) data->getSize());
+	if (plug == nullptr) // SCUA fork: avoid using a failed decoder reload.
+		return false;
 	ModPlug_SetMasterVolume(plug, 128);
 	eof = false;
 	return (plug != 0);

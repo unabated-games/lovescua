@@ -57,7 +57,10 @@ int Rasterizer::getDescent() const
 
 GlyphData *Rasterizer::getGlyphData(uint32 glyph) const
 {
-	return getGlyphDataForIndex(getGlyphIndex(glyph));
+	// SCUA fork: rasterizer indices need not map back to Unicode (e.g. FreeType).
+	GlyphData *data = getGlyphDataForIndex(getGlyphIndex(glyph));
+	data->setGlyph(glyph);
+	return data;
 }
 
 GlyphData *Rasterizer::getGlyphData(const std::string &text) const

@@ -1,0 +1,74 @@
+import love
+import math
+import love_audio as audio
+import love_sound as sound
+
+let tone = nil
+let samples = nil
+let ticks = 0
+let playing = true
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / native audio — Space toggles")
+  samples = sound.new_data(8000, 8000, 16, 1)
+  for i in 0:8000 do
+    sound.set_sample(samples, i, 1, math.sin(i * 6.28318530718 * 220 / 8000) * 0.15)
+  end
+  assert(sound.info(samples).samples == 8000)
+  assert(sound.info(samples).duration == 1)
+  let copy = sound.clone(samples)
+  sound.set_sample(copy, 1, 1, 0)
+  assert(sound.get_sample(samples, 1, 1) != 0)
+  let part = sound.slice_data(samples, 0, 800)
+  assert(sound.info(part).samples == 800)
+  tone = audio.new_source(samples)
+  assert(audio.duration(tone) == 1)
+  audio.set_looping(tone, true)
+  audio.set_volume(tone, 0.2)
+  audio.set_pitch(tone, 1)
+  assert(audio.is_looping(tone))
+  assert(audio.volume(tone) > 0)
+  let clone = audio.clone(tone)
+  assert(audio.channel_count(clone) == 1)
+  audio.set_relative(tone, true)
+  assert(audio.is_relative(tone))
+  assert(audio.play(tone))
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+end
+
+fn keypressed(key: string)
+  if key == "Escape" then love.event.quit() end
+  if key == "Space" then
+    playing = not playing
+    if playing then audio.play(tone) else audio.pause(tone) end
+  end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.3, 0.9, 0.8, 1))
+  love.graphics.print("Native LÖVE audio / generated PCM / looping OpenAL source", vec2(30, 30))
+  let waveform = []
+  for i in 0:400 do
+    waveform.push(vec2(30 + i * 2.2, 300 + sound.get_sample(samples, i, 1) * 600))
+  end
+  love.graphics.line(waveform)
+  love.graphics.print(if playing then "Playing — Space pauses" else "Paused — Space plays" end, vec2(30, 550))
+end
+
+fn quit()
+  audio.stop_all()
+end
+
+fn verify()
+  assert(ticks == 3)
+  assert(audio.is_playing(tone))
+  audio.pause(tone)
+  assert(not audio.is_playing(tone))
+  audio.seek(tone, 0.2)
+  assert(abs(audio.tell(tone) - 0.2) < 0.01)
+  audio.stop(tone)
+  print("PASS: native sound and audio")
+end

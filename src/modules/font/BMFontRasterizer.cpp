@@ -132,10 +132,11 @@ std::string BMFontLine::getAttributeString(const char *name) const
 } // anonymous namespace
 
 
-BMFontRasterizer::BMFontRasterizer(love::filesystem::FileData *fontdef, const std::vector<image::ImageData *> &imagelist, float dpiscale)
+BMFontRasterizer::BMFontRasterizer(love::filesystem::FileData *fontdef, const std::vector<image::ImageData *> &imagelist, float dpiscale, bool loadpages)
 	: fontSize(0)
 	, unicode(false)
 	, lineHeight(0)
+	, allowPageLoading(loadpages)
 {
 	this->dpiScale = dpiscale;
 
@@ -205,6 +206,9 @@ void BMFontRasterizer::parseConfig(const std::string &configtext)
 			// Load the page file from disk into an ImageData, if necessary.
 			if (images[pageindex].get() == nullptr)
 			{
+				// SCUA fork: never fall back to ambient filesystem reads in explicit-image mode.
+				if (!allowPageLoading)
+					throw love::Exception("BMFont page %d must be supplied as ImageData.", pageindex);
 				using namespace love::filesystem;
 				using namespace love::image;
 
@@ -248,6 +252,19 @@ void BMFontRasterizer::parseConfig(const std::string &configtext)
 			c.metrics.advance  =  cline.getAttributeInt("xadvance");
 
 			c.glyph = id;
+
+			// SCUA fork: bound glyph allocation and require explicit valid page regions.
+			if (!allowPageLoading)
+			{
+				auto image = images.find(c.page);
+				if (image == images.end() || !image->second || c.x < 0 || c.y < 0
+					|| c.metrics.width < 0 || c.metrics.height < 0
+					|| c.metrics.width > 4096 || c.metrics.height > 4096
+					|| (uint64)c.metrics.width * c.metrics.height * 4 > 16 * 1024 * 1024
+					|| (int64)c.x + c.metrics.width > image->second->getWidth()
+					|| (int64)c.y + c.metrics.height > image->second->getHeight())
+					throw love::Exception("BMFont glyph %u requires a valid supplied page region (maximum 16 MiB).", id);
+			}
 
 			characters.push_back(c);
 			characterIndices[id] = (int) characters.size() - 1;

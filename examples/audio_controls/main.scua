@@ -1,0 +1,155 @@
+import love
+import love_audio as audio
+import love_sound as sound
+import fs
+
+record Parameter { name: string, value: any }
+let first=nil
+let second=nil
+let stream=nil
+let movie=nil
+let video_source=nil
+let ticks=0
+let efx=false
+let device=""
+
+fn read(name: string)
+  match fs.read(`res:{name}`)
+    Ok(data) -> return data
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> nil
+  end
+end
+
+fn value(parameters, name: string)
+  for parameter in parameters do if parameter.name==name then return parameter.value end end
+  assert(false,`missing audio parameter {name}`)
+end
+
+fn load()
+  love.window.set_title("SCUA / audio routing, parameter getters, source groups, devices, tracker decoding and embedded video audio")
+  device=audio.playback_device()
+  assert(device!="" and audio.playback_devices().len()>0)
+  audio.set_playback_device(device)
+  assert(audio.playback_device()==device)
+  audio.set_spatialization(false)
+  assert(not audio.spatialization().enabled)
+  audio.spatialization_filters()
+  audio.set_mix_with_system(true)
+  audio.pause_context()
+  audio.resume_context()
+  let samples=sound.new_data(8000,8000,16,1)
+  sound.set_sample(samples,20,1,0.5)
+  let converted=sound.new_data(100,8000,8,1)
+  sound.copy_data(converted,samples,20,1,3)
+  assert(abs(sound.get_sample(converted,3,1)-0.5)<0.02)
+  must_fail("PCM copy bounds",fn() sound.copy_data(converted,samples,7999,2,0) end)
+  love.graphics.release(converted)
+  first=audio.new_source(samples)
+  second=audio.clone(first)
+  love.graphics.release(samples)
+  audio.set_volume(first,0)
+  audio.set_volume(second,0)
+  audio.set_volume_limits(first,vec2(0.2,0.9))
+  audio.set_attenuation(first,vec2(2,20))
+  audio.set_air_absorption(first,0.3)
+  audio.set_rolloff(first,0.5)
+  let state=audio.source_info(first)
+  assert(abs(state.volume_limits.x-0.2)<0.001 and abs(state.volume_limits.y-0.9)<0.001)
+  assert(state.attenuation==vec2(2,20) and abs(state.air_absorption-0.3)<0.001)
+  assert(state.duration_samples==8000 and state.channels==1)
+  audio.seek_samples(first,800)
+  assert(abs(audio.source_info(first).samples-800)<1)
+  must_fail("invalid gain range",fn() audio.set_volume_limits(first,vec2(0.9,0.2)) end)
+  efx=audio.effects_info().supported
+  if efx then
+    let params: {Parameter}=[{name="volume",value=0.8},{name="highgain",value=0.3}]
+    assert(audio.set_filter(first,"lowpass",params))
+    let filter=audio.get_filter(first)
+    assert(filter.type=="lowpass" and abs(value(filter.parameters,"highgain")-0.3)<0.001)
+    assert(audio.set_effect("room","reverb",[{name="decaytime",value=0.4},{name="highlimit",value=true}]))
+    let effect=audio.get_effect("room")
+    assert(effect.type=="reverb" and abs(value(effect.parameters,"decaytime")-0.4)<0.001)
+    assert(value(effect.parameters,"highlimit"))
+    assert(audio.attach_effect_filtered(first,"room","lowpass",[{name="highgain",value=0.2}]))
+    assert(abs(value(audio.get_source_effect(first,"room").parameters,"highgain")-0.2)<0.001)
+    assert(audio.detach_effect(first,"room"))
+    assert(audio.get_source_effect(first,"room")==nil)
+    assert(audio.clear_filter(first) and audio.get_filter(first)==nil)
+    assert(audio.remove_effect("room") and audio.get_effect("room")==nil)
+  end
+  audio.set_looping(first,true)
+  audio.set_looping(second,true)
+  assert(audio.play_many([first,second]))
+  audio.pause_many([first,second])
+  assert(not audio.is_playing(first) and not audio.is_playing(second))
+  assert(audio.play_many([first,second]))
+  let paused=audio.pause_all()
+  assert(paused.len()==2)
+  assert(audio.play_many(paused))
+  audio.stop_many(paused)
+  for source in paused do love.graphics.release(source) end
+  let decoder=sound.new_decoder(read("click.ogg"))
+  assert(sound.decode_next(decoder)!=nil)
+  assert(sound.decoder_rewind(decoder))
+  stream=audio.new_source_from_decoder(decoder)
+  love.graphics.release(decoder)
+  assert(audio.source_type(stream)=="stream")
+  audio.set_volume(stream,0)
+  assert(audio.play(stream))
+  audio.stop(stream)
+  let tracker=sound.new_decoder(read("tone.mod"))
+  assert(sound.decoder_info(tracker).channels==2)
+  assert(sound.decode_next(tracker)!=nil)
+  assert(sound.decoder_rewind(tracker))
+  love.graphics.release(tracker)
+  let decoded=sound.decode(read("tone.mod"))
+  assert(sound.info(decoded).samples>0)
+  love.graphics.release(decoded)
+  movie=love.video.new(read("sample.ogv"))
+  video_source=love.video.source(movie)
+  assert(video_source!=nil and audio.source_type(video_source)=="stream")
+  audio.set_volume(video_source,0)
+  love.video.seek(movie,0.1)
+  assert(abs(love.video.tell(movie)-audio.tell(video_source))<0.01)
+  love.video.play(movie)
+  assert(audio.is_playing(video_source))
+  love.video.pause(movie)
+  assert(not audio.is_playing(video_source))
+  love.video.set_filter(movie,"nearest")
+  assert(love.video.filter(movie).min=="nearest")
+  let silent=love.video.new(read("sample.ogv"),false)
+  assert(love.video.source(silent)==nil)
+  love.graphics.release(silent)
+end
+
+fn update(dt: float)
+  ticks=ticks+1
+  love.video.update(movie,dt)
+end
+
+fn draw()
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.video.draw(movie,vec2(330,220),0,vec2(3,3))
+  love.graphics.print("Audio source groups / complete effect and filter routing / PCM copies / native tracker decoder",vec2(25,35))
+  love.graphics.print(`Device: {device} / EFX: {efx} / embedded Vorbis source retained`,vec2(25,80))
+end
+
+fn keypressed(key: string) if key=="Escape" then love.event.quit() end end
+
+fn verify()
+  assert(ticks==3)
+  assert(abs(love.video.tell(movie)-audio.tell(video_source))<0.01)
+  love.video.set_source(movie,nil)
+  assert(love.video.source(movie)==nil)
+  assert(audio.duration(video_source)>0)
+  love.graphics.release(video_source)
+  audio.stop_all()
+  print("PASS: source properties/groups, EFX getters and filtered routing, devices, PCM conversion, tracker decoding, embedded Vorbis video synchronization and retained aliases")
+end

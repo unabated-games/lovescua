@@ -92,7 +92,10 @@ int TrueTypeRasterizer::getGlyphSpacing(uint32 glyph) const
 	if (err != FT_Err_Ok)
 		return 0;
 
-	return (int)(ftglyph->advance.x >> 16);
+	// SCUA fork: FT_Get_Glyph returns an owned temporary, even for metric queries.
+	int advance = (int)(ftglyph->advance.x >> 16);
+	FT_Done_Glyph(ftglyph);
+	return advance;
 }
 
 int TrueTypeRasterizer::getGlyphIndex(uint32 glyph) const

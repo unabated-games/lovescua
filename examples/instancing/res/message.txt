@@ -1,0 +1,1 @@
+1600 instances / one mesh draw / typed record buffer uploads

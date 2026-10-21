@@ -42,7 +42,7 @@ class BMFontRasterizer : public Rasterizer
 {
 public:
 
-	BMFontRasterizer(love::filesystem::FileData *fontdef, const std::vector<image::ImageData *> &imagelist, float dpiscale);
+	BMFontRasterizer(love::filesystem::FileData *fontdef, const std::vector<image::ImageData *> &imagelist, float dpiscale, bool loadpages = true);
 	virtual ~BMFontRasterizer();
 
 	// Implements Rasterizer.
@@ -88,6 +88,7 @@ private:
 	bool unicode;
 
 	int lineHeight;
+	bool allowPageLoading; // SCUA fork: explicit-image-only construction for capability-safe embedding.
 
 }; // BMFontRasterizer
 

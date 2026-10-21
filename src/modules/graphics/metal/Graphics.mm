@@ -1309,12 +1309,13 @@ void Graphics::draw(const DrawIndexedCommand &cmd)
 
 	if (cmd.indirectBuffer != nullptr)
 	{
+		// SCUA fork: indirect command and index data offsets are independent.
 		[encoder drawIndexedPrimitives:getMTLPrimitiveType(cmd.primitiveType)
 							 indexType:indexType
 						   indexBuffer:getMTLBuffer(cmd.indexBuffer)
 					 indexBufferOffset:cmd.indexBufferOffset
 						indirectBuffer:getMTLBuffer(cmd.indirectBuffer)
-				  indirectBufferOffset:cmd.indexBufferOffset];
+				  indirectBufferOffset:cmd.indirectBufferOffset];
 	}
 	else
 	{

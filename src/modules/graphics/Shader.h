@@ -305,6 +305,8 @@ protected:
 
 		std::map<std::string, UniformInfo> texelBuffers;
 		std::map<std::string, UniformInfo> storageBuffers;
+		// SCUA fork: glslang expands block arrays; backends need their flat element indices.
+		std::map<std::string, std::pair<std::string, int>> storageBufferElements;
 		std::map<std::string, UniformInfo> sampledTextures;
 		std::map<std::string, UniformInfo> storageTextures;
 		std::map<std::string, UniformInfo> localUniforms;

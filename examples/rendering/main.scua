@@ -1,0 +1,88 @@
+import love
+
+record Capture { label: string, transfer: any }
+let first=nil
+let second=nil
+let masked=nil
+let shader=nil
+let captures: {Capture}=[]
+let ticks=0
+
+fn load()
+  love.window.set_title("SCUA / multiple render targets, stencil, depth and asynchronous readback")
+  first=love.graphics.new_canvas(256,256)
+  second=love.graphics.new_canvas(256,256)
+  masked=love.graphics.new_canvas(256,256)
+  shader=love.graphics.new_shader("extern vec4 colors[2]; extern mat2 mixMatrix; void effect() { love_Canvases[0] = vec4(mixMatrix * vec2(1.0,0.2),colors[0].b,1.0); love_Canvases[1] = colors[1]; }")
+  love.graphics.shader_send_array(shader,"colors",[vec4(0,0,0.1,1),vec4(0.1,0.8,0.3,1)])
+  love.graphics.shader_send_array(shader,"mixMatrix",[[0.5,2,0.2,0]])
+  love.graphics.shader_send_matrix(shader,"mixMatrix",[0.5,0.2,2,0],true)
+  love.graphics.shader_send_matrix(shader,"mixMatrix",[0.5,2,0.2,0])
+  assert(love.graphics.shader_uniform_info(shader,"mixMatrix").rows==2)
+  assert(love.graphics.shader_uniform_info(shader,"colors").count==2)
+end
+
+fn update(dt: float) ticks=ticks+1 end
+
+fn draw()
+  love.graphics.set_canvases([first,second])
+  love.graphics.clear(vec4(0,0,0,0))
+  love.graphics.set_shader(shader)
+  love.graphics.circle("fill",vec2(128,128),100)
+  love.graphics.set_shader(nil)
+  love.graphics.set_canvases([masked],true,true)
+  love.graphics.clear(vec4(0,0,0,0),0,1)
+  love.graphics.set_depth_mode("never",true)
+  assert(love.graphics.depth_mode().write)
+  love.graphics.set_color(vec4(1,0,0,1))
+  love.graphics.rectangle("fill",vec2(0,0),vec2(256,256))
+  love.graphics.set_depth_mode("always",false)
+  love.graphics.set_stencil_mode("draw",1)
+  love.graphics.circle("fill",vec2(128,128),90)
+  assert(love.graphics.stencil_mode().mode=="draw")
+  love.graphics.set_stencil_mode("test",1)
+  love.graphics.set_color(vec4(0.1,0.7,0.9,1))
+  love.graphics.rectangle("fill",vec2(0,0),vec2(256,256))
+  love.graphics.set_stencil_mode("off",0)
+  love.graphics.set_stencil_state("keep","always",0,255,255)
+  love.graphics.set_color_mask(true,true,true,true)
+  love.graphics.set_canvases([])
+  if captures.len()==0 then
+    captures.push({label="first",transfer=love.graphics.texture_readback_async(first)})
+    captures.push({label="second",transfer=love.graphics.texture_readback_async(second)})
+    captures.push({label="mask",transfer=love.graphics.texture_readback_async(masked)})
+  end
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.print("One shader, two color targets / stencil and depth / async GPU transfers",vec2(25,35))
+  love.graphics.draw(first,vec2(35,180))
+  love.graphics.draw(second,vec2(350,180))
+  love.graphics.draw(masked,vec2(665,180))
+  love.graphics.print("MRT output 0",vec2(65,465))
+  love.graphics.print("MRT output 1",vec2(380,465))
+  love.graphics.print("Stencil mask",vec2(695,465))
+  for i,capture in captures do
+    love.graphics.print(`{capture.label}: {love.graphics.readback_status(capture.transfer)}`,vec2(35+i*315,530))
+  end
+end
+
+fn keypressed(key: string)
+  if key=="Escape" then love.event.quit() end
+end
+
+fn verify()
+  assert(ticks==3)
+  for i,capture in captures do
+    love.graphics.readback_wait(capture.transfer)
+    assert(love.graphics.readback_status(capture.transfer)=="complete")
+    let image=love.graphics.readback_image(capture.transfer)
+    let center=love.image.get_pixel(image,128,128)
+    let outside=love.image.get_pixel(image,0,0)
+    assert(outside.w==0)
+    if i==0 then assert(center.x>0.8 and center.y<0.3) end
+    if i==1 then assert(center.y>0.7 and center.x<0.2) end
+    if i==2 then assert(center.z>0.8 and center.x<0.2) end
+    love.graphics.release(image)
+    love.graphics.release(capture.transfer)
+  end
+  print("PASS: MRT pixel colors, depth rejection, stencil mask and asynchronous readback")
+end

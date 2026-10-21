@@ -91,6 +91,7 @@ public:
 	 * Gets the glyph codepoint itself.
 	 **/
 	uint32 getGlyph() const;
+	void setGlyph(uint32 value) { glyph = value; } // SCUA fork: preserve requested Unicode metadata.
 
 	/**
 	 * Gets the glyph as a UTF-8 string (instead of a UTF-8 code point.)

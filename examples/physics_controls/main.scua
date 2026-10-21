@@ -1,0 +1,295 @@
+import love
+
+-- Game-owned data stays in typed SCUA records; callbacks identify native bodies
+-- by their stable world/body IDs instead of embedding VM references in Box2D.
+record Entity { body: any, name: string, hit_points: int = 100 }
+let ticks=0
+let checks=0
+let contact_world=nil
+let filter_mode="allow"
+let filter_calls=0
+let begin_calls=0
+let pre_calls=0
+let post_calls=0
+let end_calls=0
+let display_world=nil
+let display_body=nil
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> checks=checks+1
+  end
+end
+
+fn near(a: float,b: float) -> bool
+  return abs(a-b)<0.002
+end
+
+fn contactfilter(pair)
+  if contact_world==nil then return true end
+  filter_calls=filter_calls+1
+  assert(love.physics.world_is_locked(contact_world),"filter lock")
+  if filter_mode=="error" then assert(false,"deliberate filter error") end
+  if filter_mode=="guard" then
+    must_fail("filter mutation",fn() love.physics.world_destroy(contact_world) end)
+  end
+  return filter_mode!="deny"
+end
+
+fn begincontact(contact)
+  begin_calls=begin_calls+1
+  assert(contact.id>0 and contact.touching)
+end
+fn endcontact(contact)
+  end_calls=end_calls+1
+  assert(contact.normal.x==contact.normal.x)
+end
+fn presolve(contact)
+  pre_calls=pre_calls+1
+  if contact_world!=nil then
+    assert(love.physics.world_is_locked(contact_world))
+    assert(love.physics.contact_info(contact_world,contact.id)!=nil)
+  end
+end
+fn postsolve(contact)
+  post_calls=post_calls+1
+  assert(contact.impulses.len()>0)
+end
+
+fn body_checks()
+  let w=love.physics.new_world(vec2(0,0))
+  love.physics.world_configure(w,{sleeping_allowed=false,warm_starting=false,continuous=false,sub_stepping=true,auto_clear_forces=false})
+  let settings=love.physics.world_settings(w)
+  assert(not settings.sleeping_allowed and not settings.warm_starting and not settings.continuous and settings.sub_stepping and not settings.auto_clear_forces,"world flags")
+  let entity: Entity={body=love.physics.new_body(w,vec2(80,60),"dynamic"),name="player"}
+  let b=entity.body
+  let c=love.physics.new_circle(b,10,1)
+  love.physics.body_set_transform(b,vec2(80,60),0.5)
+  love.physics.body_set_sleeping_allowed(b,false)
+  love.physics.body_set_mass_data(b,2,vec2(3,4),100)
+  let mass=love.physics.body_mass_data(b)
+  assert(mass.custom and near(mass.mass,2) and near(mass.inertia,100) and (mass.center-vec2(3,4)).length()<0.002,"mass data")
+  let vector=vec2(12,7)
+  let rotated=love.physics.body_world_vector(b,vector)
+  assert((love.physics.body_local_vector(b,rotated)-vector).length()<0.002,"vector transforms")
+  let transformed=love.physics.body_transform_points(b,[vec2(0,0),vector])
+  assert((transformed[0]-vec2(80,60)).length()<0.002)
+  assert((love.physics.body_transform_points(b,transformed,true)[1]-vector).length()<0.002)
+  love.physics.body_set_velocity(b,vec2(12,0))
+  love.physics.body_set_angular_velocity(b,0)
+  assert(near(love.physics.body_local_velocity(b,vec2(3,4)).x,12))
+  assert(love.physics.body_info(b).custom_mass and not love.physics.body_info(b).sleeping_allowed)
+  love.physics.body_reset_mass_data(b)
+  assert(not love.physics.body_mass_data(b).custom)
+  love.physics.world_shift_origin(w,vec2(20,10))
+  assert((love.physics.body_position(b)-vec2(60,50)).length()<0.002)
+  love.physics.world_clear_forces(w)
+  love.physics.world_step(w,1/60,4,2)
+  assert(love.physics.world_profile(w).step>=0)
+  assert(love.physics.world_settings(w).proxies==1)
+  let alias=love.physics.world_body(w,love.physics.body_id(b))
+  let fixture=love.physics.world_collider(w,love.physics.collider_id(c))
+  assert(love.physics.world_bodies(w).len()==1 and love.physics.body_colliders(alias).len()==1)
+  assert(love.physics.world_stats(love.physics.body_world(alias)).bodies==1)
+  love.graphics.release(b)
+  love.graphics.release(c)
+  assert(love.physics.body_id(love.physics.collider_body(fixture))==love.physics.body_id(alias),"aliases survive original handle close")
+  love.physics.body_destroy(alias)
+  assert(love.physics.body_is_destroyed(alias))
+  assert(love.physics.collider_is_destroyed(fixture))
+  assert(love.physics.world_body(w,1)==nil)
+  love.physics.world_destroy(w)
+  assert(love.physics.world_is_destroyed(w))
+  must_fail("dead world",fn() love.physics.world_stats(w) end)
+end
+
+fn shape_checks()
+  let w=love.physics.new_world(vec2(0,0))
+  let a=love.physics.new_body(w,vec2(0,0),"static")
+  let b=love.physics.new_body(w,vec2(60,0),"dynamic")
+  let circle=love.physics.new_circle(a,10,0)
+  let box=love.physics.new_box(b,vec2(20,20),1)
+  love.physics.collider_configure(circle,{radius=12,center=vec2(2,0),friction=0.6,restitution=0.4,sensor=true,category=2,mask=7,group=-2})
+  let shape=love.physics.collider_shape(circle)
+  assert(shape.kind=="circle" and near(shape.radius,12) and near(shape.center.x,2) and shape.sensor and shape.category==2 and shape.mask==7 and shape.group==-2,"circle configuration")
+  assert(love.physics.collider_mass(circle,1).mass>0)
+  let bounds=love.physics.collider_bounds(circle)
+  assert(near(bounds.x,-10) and near(bounds.z,14),"circle bounds")
+  let placed=love.physics.collider_compute_bounds(circle,vec2(10,20),0)
+  assert(near(placed.x,0) and near(placed.y,8))
+  let hit=love.physics.collider_raycast(circle,vec2(-50,0),vec2(50,0))
+  assert(hit!=nil and near(hit.point.x,-10) and near(hit.normal.x,-1),"shape ray")
+  let separation=love.physics.collider_distance(circle,box)
+  assert(separation.distance>35 and separation.distance<37,"shape distance")
+  must_fail("invalid material atomicity",fn() love.physics.collider_configure(circle,{friction=0.2,radius=-10}) end)
+  assert(near(love.physics.collider_info(circle).friction,0.6))
+  let chain=love.physics.new_chain(a,[vec2(-30,40),vec2(0,40),vec2(30,40)],false)
+  love.physics.collider_configure(chain,{previous=vec2(-60,40),next=vec2(60,40)})
+  let child=love.physics.collider_child_edge(chain,0)
+  assert(near(child.previous.x,-60) and child.one_sided)
+  assert(love.physics.collider_shape(chain).children==2)
+  must_fail("invalid child",fn() love.physics.collider_child_edge(chain,2) end)
+  let edge=love.physics.new_edge(a,vec2(0,70),vec2(30,70))
+  love.physics.collider_configure(edge,{previous=vec2(-30,70),next=vec2(60,70)})
+  assert(love.physics.collider_shape(edge).one_sided)
+  let visits=0
+  let count=love.physics.world_query_each(w,vec2(-100,-100),vec2(100,100),fn(item)
+      assert(love.physics.world_is_locked(w) and item.id>0)
+      visits=visits+1
+      return true
+    end)
+  assert(count==visits and count>=4,"area callbacks")
+  assert(love.physics.world_query_each(w,vec2(-100,-100),vec2(100,100),fn(item) return false end)==1,"area early stop")
+  must_fail("query lock",fn() love.physics.world_query_each(w,vec2(-100,-100),vec2(100,100),fn(item) love.physics.body_destroy(b) return true end) end)
+  assert(not love.physics.world_is_locked(w) and not love.physics.body_is_destroyed(b),"query error unlock")
+  assert(love.physics.world_raycast_each(w,vec2(-50,0),vec2(100,0),fn(hit) assert(hit.fraction>0) return -1 end)==2,"ray ignore")
+  assert(love.physics.world_raycast_each(w,vec2(-50,0),vec2(100,0),fn(hit) return 0 end)==1,"ray stop")
+  must_fail("ray return validation",fn() love.physics.world_raycast_each(w,vec2(-50,0),vec2(100,0),fn(hit) return 2 end) end)
+  assert(not love.physics.world_is_locked(w))
+  love.physics.world_destroy(w)
+end
+
+fn joint_checks()
+  for kind in ["distance","revolute","prismatic","wheel","weld","mouse","friction","motor","pulley","rope"] do
+    let w=love.physics.new_world(vec2(0,0))
+    let a=love.physics.new_body(w,vec2(0,0),"static")
+    let b=love.physics.new_body(w,vec2(60,0),"dynamic")
+    love.physics.new_circle(b,10,1)
+    let j=love.physics.new_joint(kind,a,b,{anchor=vec2(0,0),anchor_a=vec2(0,0),anchor_b=vec2(60,0),axis=vec2(1,0),ground_a=vec2(0,-60),ground_b=vec2(60,-60),collide_connected=true})
+    assert(love.physics.joint_info(j).collide_connected,`{kind} collide_connected`)
+    if kind=="distance" or kind=="rope" then
+      love.physics.joint_set_limits(j,true,80,100)
+      assert(near(love.physics.joint_state(j).min_length,80),"distance interval can move beyond old maximum")
+      love.physics.joint_configure(j,{length=70,min_length=20,max_length=90,stiffness=12,damping=3})
+      let state=love.physics.joint_state(j)
+      assert(near(state.length,70) and near(state.min_length,20) and near(state.max_length,90) and near(state.stiffness,12),"distance settings")
+    end
+    if kind=="wheel" or kind=="revolute" or kind=="prismatic" then
+      love.physics.joint_configure(j,{motor_enabled=true,motor_speed=2,limit_enabled=true,lower_limit=-0.5,upper_limit=0.5})
+      let state=love.physics.joint_state(j,1/60)
+      assert(state.motor_enabled and state.limit_enabled and near(state.motor_speed,2) and near(state.lower_limit,-0.5),`{kind} motor/limit state`)
+    end
+    if kind=="mouse" or kind=="wheel" or kind=="weld" then
+      love.physics.joint_configure(j,{stiffness=40,damping=5})
+      assert(near(love.physics.joint_state(j).stiffness,40) and near(love.physics.joint_state(j).damping,5),`{kind} spring state`)
+    end
+    if kind=="friction" or kind=="motor" then
+      love.physics.joint_configure(j,{max_force=120,max_torque=240})
+      assert(near(love.physics.joint_state(j).max_force,120) and near(love.physics.joint_state(j).max_torque,240))
+    end
+    if kind=="motor" then
+      love.physics.joint_configure(j,{linear_offset=vec2(50,2),angular_offset=0.2,correction_factor=0.7})
+      assert(near(love.physics.joint_state(j).correction_factor,0.7))
+      must_fail("joint configuration atomicity",fn() love.physics.joint_configure(j,{max_force=300,correction_factor=2}) end)
+      assert(near(love.physics.joint_state(j).max_force,120))
+    end
+    if kind=="mouse" then
+      love.physics.joint_configure(j,{target=vec2(40,10),max_force=120})
+      assert(near(love.physics.joint_state(j).target.x,40))
+    end
+    if kind=="pulley" then assert(near(love.physics.joint_state(j).ratio,1)) end
+    if kind=="motor" then
+      must_fail("unpublished joint cleanup",fn() love.physics.new_joint("motor",a,b,{max_force=-1}) end)
+      assert(love.physics.world_stats(w).joints==1,"failed joint creation removed native joint")
+    end
+    let alias=love.physics.world_joint(w,love.physics.joint_id(j))
+    assert(love.physics.world_joints(w).len()==1 and love.physics.body_joints(b).len()==1 and love.physics.joint_bodies(alias).len()==2)
+    love.graphics.release(j)
+    love.physics.world_step(w,1/60)
+    assert(not love.physics.joint_is_destroyed(alias))
+    love.physics.world_destroy(w)
+    assert(love.physics.joint_is_destroyed(alias) and love.physics.body_is_destroyed(b),"world descendant invalidation")
+  end
+  let w=love.physics.new_world(vec2(0,0))
+  let ground=love.physics.new_body(w,vec2(0,0),"static")
+  let a=love.physics.new_body(w,vec2(0,0),"dynamic")
+  let b=love.physics.new_body(w,vec2(60,0),"dynamic")
+  love.physics.new_circle(a,10,1)
+  love.physics.new_circle(b,10,1)
+  let one=love.physics.new_revolute_joint(ground,a,vec2(0,0))
+  let two=love.physics.new_revolute_joint(ground,b,vec2(60,0))
+  let gear=love.physics.new_gear_joint(one,two,-2,true)
+  let source_alias=love.physics.world_joint(w,love.physics.joint_id(one))
+  must_fail("same source aliases",fn() love.physics.new_gear_joint(one,source_alias,1) end)
+  assert(love.physics.joint_state(gear).source_a==love.physics.joint_id(one))
+  love.physics.joint_configure(gear,{ratio=-1.5})
+  assert(near(love.physics.joint_state(gear).ratio,-1.5))
+  love.physics.joint_destroy(source_alias)
+  assert(love.physics.joint_is_destroyed(one) and love.physics.joint_is_destroyed(gear),"gear cascade")
+  love.physics.world_destroy(w)
+end
+
+fn contact_checks()
+  let w=love.physics.new_world(vec2(0,0))
+  contact_world=w
+  let a=love.physics.new_body(w,vec2(0,0),"static")
+  let b=love.physics.new_body(w,vec2(30,0),"dynamic")
+  let ca=love.physics.new_circle(a,20,0)
+  let cb=love.physics.new_circle(b,20,1)
+  filter_mode="guard"
+  love.physics.world_step(w,0)
+  assert(filter_calls>0 and begin_calls>0 and pre_calls>0,"contact callbacks")
+  let contacts=love.physics.world_contact_list(w)
+  assert(contacts.len()==1 and love.physics.body_is_touching(a,b))
+  let id=contacts[0].id
+  assert(love.physics.body_contact_list(b)[0].id==id)
+  love.physics.contact_set(w,id,{enabled=false,friction=0.7,restitution=0.3,tangent_speed=12})
+  love.physics.world_step(w,0)
+  let state=love.physics.contact_info(w,id)
+  assert(state!=nil and not state.enabled and state.enabled_override==false and near(state.friction,0.7) and near(state.restitution,0.3) and near(state.tangent_speed,12),"persistent contact settings")
+  love.physics.contact_reset(w,id)
+  assert(love.physics.contact_info(w,id).enabled_override==nil and love.physics.contact_info(w,id).enabled)
+  love.physics.world_step(w,1/60)
+  assert(post_calls>0,"postsolve")
+  love.physics.body_set_position(b,vec2(200,0))
+  love.physics.world_step(w,0)
+  assert(love.physics.contact_info(w,id)==nil and end_calls>0,"contact retirement")
+  must_fail("stale contact",fn() love.physics.contact_set(w,id,{friction=1}) end)
+  filter_mode="deny"
+  love.physics.body_set_position(b,vec2(30,0))
+  love.physics.world_step(w,0)
+  assert(love.physics.world_contact_list(w).len()==0,"contact filter deny")
+  filter_mode="error"
+  love.physics.collider_configure(cb,{mask=65535})
+  must_fail("filter callback error",fn() love.physics.world_step(w,1/60) end)
+  assert(not love.physics.world_is_locked(w),"step error unlock")
+  filter_mode="allow"
+  love.physics.collider_configure(cb,{mask=65535})
+  love.physics.world_step(w,0)
+  love.physics.world_step(w,1/60)
+  love.physics.world_step(w,0)
+  assert(love.physics.world_contact_list(w).len()==1,"filter recovery")
+  love.physics.world_set_callbacks_enabled(w,false)
+  let previous=pre_calls
+  love.physics.world_step(w,0)
+  assert(pre_calls==previous)
+  love.physics.world_destroy(w)
+  contact_world=nil
+end
+
+fn load()
+  love.window.set_title("SCUA / physics properties, aliases, joints, contacts and query callbacks")
+  body_checks()
+  shape_checks()
+  joint_checks()
+  contact_checks()
+  display_world=love.physics.new_world(vec2(0,200))
+  display_body=love.physics.new_body(display_world,vec2(300,180),"dynamic")
+  love.physics.new_circle(display_body,24,1)
+end
+fn update(dt: float)
+  ticks=ticks+1
+  love.physics.world_step(display_world,dt)
+end
+fn draw()
+  love.graphics.set_color(vec4(0.3,0.9,0.75,1))
+  love.graphics.circle("fill",love.physics.body_position(display_body),24)
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.print("Physics controls / all joint families / stable aliases / contacts / queries",vec2(30,30))
+  love.graphics.print(`{checks} rejected-input and lifetime checks passed`,vec2(30,70))
+end
+fn verify()
+  assert(ticks==3 and checks>=10,`physics checks={checks} ticks={ticks}`)
+  print("PASS: physics settings, joint snapshots/configuration, aliases, query/filter callbacks, persistent contacts and retirement")
+end

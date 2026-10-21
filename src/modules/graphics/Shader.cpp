@@ -1472,9 +1472,28 @@ bool Shader::validateInternal(StrongRef<ShaderStage> stages[], std::string &err,
 		}
 	}
 
+	// SCUA fork: glslang reflects every element of a block array separately, in
+	// declaration order. Reassemble one resource array, retaining the expanded
+	// names and flattened indices for OpenGL's per-block binding queries.
+	std::map<std::string, int> storageBufferCounts;
+	for (int i = 0; i < program.getNumBufferBlocks(); i++)
+	{
+		const auto &info = program.getBufferBlock(i);
+		std::string name = info.name.substr(0, info.name.find('['));
+		int element = storageBufferCounts[name]++;
+		reflection.storageBufferElements[info.name] = std::make_pair(name, element);
+	}
+
 	for (int i = 0; i < program.getNumBufferBlocks(); i++)
 	{
 		const glslang::TObjectReflection &info = program.getBufferBlock(i);
+		const auto &element = reflection.storageBufferElements.at(info.name);
+		auto existing = reflection.storageBuffers.find(element.first);
+		if (existing != reflection.storageBuffers.end())
+		{
+			existing->second.stageMask |= getStageMask(info.stages);
+			continue;
+		}
 		const glslang::TType *type = info.getType();
 		if (type != nullptr)
 		{
@@ -1519,16 +1538,12 @@ bool Shader::validateInternal(StrongRef<ShaderStage> stages[], std::string &err,
 			}
 
 			UniformInfo u = {};
-			u.name = canonicaliizeUniformName(info.name);
+			u.name = element.first;
 			u.location = -1;
 			u.stageMask = getStageMask(info.stages);
 			u.components = 1;
 			u.baseType = UNIFORM_STORAGEBUFFER;
-
-			if (type->isSizedArray())
-				u.count = type->getArraySizes()->getCumulativeSize();
-			else
-				u.count = 1;
+			u.count = storageBufferCounts.at(u.name);
 
 			u.bufferStride = (size_t) info.size;
 			u.bufferMemberCount = (size_t) info.numMembers;

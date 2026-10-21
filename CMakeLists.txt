@@ -27,12 +27,18 @@ cmake_minimum_required(VERSION 3.19)
 
 project(love)
 
+# Altered for the SCUA-powered fork; the upstream Lua build remains available.
+option(LOVE_SCUA "Build the SCUA host instead of the Lua runtime" OFF)
+if(LOVE_SCUA)
+	include(scua/Dependencies.cmake)
+endif()
+
 set(CMAKE_MODULE_PATH "${love_SOURCE_DIR}/extra/cmake" ${CMAKE_MODULE_PATH})
 set(CMAKE_POSITION_INDEPENDENT_CODE TRUE) # Needed for shared libs on Linux. (-fPIC).
 set(CMAKE_CXX_STANDARD 17)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)	# Allow grouping projects in Visual Studio
 
-if(APPLE)
+if(APPLE AND NOT LOVE_SCUA)
 	message(WARNING "CMake is not an officially supported build system for love on Apple platforms.")
 	message(WARNING "Use the prebuilt .app or the xcode project in platform/xcode/ instead.")
 endif()
@@ -112,6 +118,8 @@ add_library(lovedep::Ogg INTERFACE IMPORTED)
 add_library(lovedep::Zlib INTERFACE IMPORTED)
 add_library(lovedep::Lua INTERFACE IMPORTED)
 
+include(scua/AudioDependencies.cmake)
+
 if(MEGA)
 	# LOVE_MSVC_DLLS contains runtime DLLs that should be bundled with the love
 	# binary (in e.g. the installer). Example: msvcp140.dll.
@@ -175,9 +183,11 @@ Please see https://github.com/love2d/megasource
 	# required for enet
 	add_definitions(-D HAS_SOCKLEN_T)
 
-	find_package(SDL3 3.1.3 REQUIRED CONFIG)
+	if(NOT TARGET SDL3::SDL3)
+		find_package(SDL3 3.1.3 REQUIRED CONFIG)
+	endif()
 	target_include_directories(lovedep::SDL INTERFACE ${SDL3_INCLUDE_DIRS})
-	target_link_libraries(lovedep::SDL INTERFACE ${SDL3_LIBRARIES})
+	target_link_libraries(lovedep::SDL INTERFACE SDL3::SDL3)
 
 	find_package(Freetype REQUIRED)
 	target_include_directories(lovedep::Freetype INTERFACE ${FREETYPE_INCLUDE_DIRS})
@@ -187,31 +197,36 @@ Please see https://github.com/love2d/megasource
 	target_include_directories(lovedep::Harfbuzz INTERFACE ${HARFBUZZ_INCLUDE_DIR})
 	target_link_libraries(lovedep::Harfbuzz INTERFACE ${HARFBUZZ_LIBRARY})
 
-	find_package(OpenAL REQUIRED)
-	target_include_directories(lovedep::OpenAL INTERFACE ${OPENAL_INCLUDE_DIR})
-	target_link_libraries(lovedep::OpenAL INTERFACE ${OPENAL_LIBRARY})
+	if(NOT LOVE_SCUA)
+		find_package(OpenAL REQUIRED)
+		target_include_directories(lovedep::OpenAL INTERFACE ${OPENAL_INCLUDE_DIR})
+		target_link_libraries(lovedep::OpenAL INTERFACE ${OPENAL_LIBRARY})
 
-	find_package(ModPlug REQUIRED)
-	target_include_directories(lovedep::Modplug INTERFACE ${MODPLUG_INCLUDE_DIR})
-	target_link_libraries(lovedep::Modplug INTERFACE ${MODPLUG_LIBRARY})
+		find_package(ModPlug REQUIRED)
+		target_include_directories(lovedep::Modplug INTERFACE ${MODPLUG_INCLUDE_DIR})
+		target_link_libraries(lovedep::Modplug INTERFACE ${MODPLUG_LIBRARY})
 
-	find_package(Theora REQUIRED)
-	target_include_directories(lovedep::Theora INTERFACE ${THEORA_INCLUDE_DIR})
-	target_link_libraries(lovedep::Theora INTERFACE ${THEORA_LIBRARY} ${THEORADEC_LIBRARY})
+		find_package(Theora REQUIRED)
+		target_include_directories(lovedep::Theora INTERFACE ${THEORA_INCLUDE_DIR})
+		target_link_libraries(lovedep::Theora INTERFACE ${THEORA_LIBRARY} ${THEORADEC_LIBRARY})
 
-	find_package(Vorbis REQUIRED)
-	target_include_directories(lovedep::Vorbis INTERFACE ${VORBIS_INCLUDE_DIR})
-	target_link_libraries(lovedep::Vorbis INTERFACE ${VORBISFILE_LIBRARY})
+		find_package(Vorbis REQUIRED)
+		target_include_directories(lovedep::Vorbis INTERFACE ${VORBIS_INCLUDE_DIR})
+		target_link_libraries(lovedep::Vorbis INTERFACE ${VORBISFILE_LIBRARY})
 
-	find_package(Ogg REQUIRED)
-	target_include_directories(lovedep::Ogg INTERFACE ${OGG_INCLUDE_DIR})
-	target_link_libraries(lovedep::Ogg INTERFACE ${OGG_LIBRARY})
+		find_package(Ogg REQUIRED)
+		target_include_directories(lovedep::Ogg INTERFACE ${OGG_INCLUDE_DIR})
+		target_link_libraries(lovedep::Ogg INTERFACE ${OGG_LIBRARY})
+
+	endif()
 
 	find_package(ZLIB REQUIRED)
 	target_include_directories(lovedep::Zlib INTERFACE ${ZLIB_INCLUDE_DIRS})
 	target_link_libraries(lovedep::Zlib INTERFACE ${ZLIB_LIBRARY})
 
-	if(LOVE_JIT)
+	if(LOVE_SCUA)
+		# The SCUA host does not compile or link any Lua bindings.
+	elseif(LOVE_JIT)
 		find_package(LuaJIT REQUIRED)
 		target_include_directories(lovedep::Lua INTERFACE ${LUAJIT_INCLUDE_DIR})
 		target_link_libraries(lovedep::Lua INTERFACE ${LUAJIT_LIBRARY})
@@ -1904,6 +1919,12 @@ if(MINGW)
 	# UTF-16 flags passed to windres. windres invokes gcc as preprocessor
 	# -> gcc outputs utf8, so windres must read-in codepage 65001 (utf8)
 	set(CMAKE_RC_FLAGS ${CMAKE_RC_FLAGS} "-c 65001 --preprocessor-arg=-finput-charset=UTF-16LE")
+endif()
+
+if(LOVE_SCUA)
+	include(CTest)
+	add_subdirectory(scua)
+	return()
 endif()
 
 add_library(liblove SHARED

@@ -1,0 +1,38 @@
+enum Facing { Down, Left, Right, Up }
+enum Motion { Idle, Walking }
+
+record Player {
+  position: vec2,
+  facing: Facing,
+  motion: Motion,
+  clock: float = 0.0,
+  frame: int = 0,
+  speed: float = 180.0,
+}
+
+fn new_player(position: vec2) -> Player
+  return { position = position, facing = Facing.Down, motion = Motion.Idle }
+end
+
+-- This module is pure game logic: test it with the regular scua command.
+fn step(player: Player, direction: vec2, dt: float, bounds: vec4)
+  if direction.length() == 0 then
+    player.motion = Motion.Idle
+    player.clock = 0.0
+    player.frame = 0
+    return
+  end
+  let movement = direction.normalize() * player.speed * dt
+  let next = player.position + movement
+  player.position = vec2(clamp(next.x, bounds.x, bounds.z), clamp(next.y, bounds.y, bounds.w))
+  if abs(direction.x) > abs(direction.y) then
+    player.facing = if direction.x < 0 then Facing.Left else Facing.Right end
+  else
+    player.facing = if direction.y < 0 then Facing.Up else Facing.Down end
+  end
+  player.motion = Motion.Walking
+  player.clock = player.clock + dt
+  player.frame = floor(player.clock * 8) % 4
+end
+
+return { new_player = new_player, step = step }

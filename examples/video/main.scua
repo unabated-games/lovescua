@@ -1,0 +1,57 @@
+import love
+import fs
+
+let video = nil
+let ticks = 0
+let size = vec2(0, 0)
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / native Theora playback")
+  match fs.read("res:sample.ogv")
+    Ok(encoded) -> video = love.video.new(encoded)
+    Error(error) -> assert(false, tostring(error))
+  end
+  size = love.video.dimensions(video)
+  assert(size.x > 0 and size.y > 0)
+  love.video.set_filter(video, "nearest")
+  love.video.play(video)
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  love.video.update(video, dt)
+end
+
+fn keypressed(key: string)
+  match key
+    "Space" -> do
+      if love.video.is_playing(video) then love.video.pause(video) else love.video.play(video) end
+    end
+    "R" -> love.video.seek(video, 0)
+    "Escape" -> love.event.quit()
+    _ -> nil
+  end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(1, 1, 1, 1))
+  let scale = min(850 / size.x, 450 / size.y)
+  love.video.draw(video, vec2(480, 320), 0, vec2(scale, scale), size * 0.5)
+  love.graphics.print("Native Theora / resource bytes / YUV rendering / Space pauses / R rewinds", vec2(25, 25))
+  love.graphics.print(`{size} / {love.video.tell(video)} seconds`, vec2(25, 590))
+end
+
+fn verify()
+  assert(ticks == 30)
+  if love.video.source(video)==nil then
+    assert(abs(love.video.tell(video) - 0.5) < 0.01)
+  else
+    assert(love.video.tell(video)>=0)
+  end
+  love.video.pause(video)
+  assert(not love.video.is_playing(video))
+  love.video.seek(video, 0)
+  assert(love.video.tell(video) == 0)
+  love.video.update(video, 0)
+  print("PASS: resource-backed Theora playback, pause and seek")
+end

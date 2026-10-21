@@ -53,12 +53,13 @@ TheoraVideoStream::TheoraVideoStream(love::filesystem::File *file)
 	{
 		parseHeader();
 	}
-	catch (love::Exception &ex)
+	catch (...)
 	{
 		delete backBuffer;
 		delete frontBuffer;
 		th_info_clear(&videoInfo);
-		throw ex;
+		if (decoder) th_decode_free(decoder);
+		throw;
 	}
 
 	frameSync.set(new DeltaSync(), Acquire::NORETAIN);
@@ -140,6 +141,13 @@ void TheoraVideoStream::parseHeader()
 	th_comment comment;
 	th_setup_info *setupInfo = nullptr;
 	th_comment_init(&comment);
+	// SCUA fork: release parsed metadata on truncated or invalid resources too.
+	struct HeaderCleanup
+	{
+		th_comment &comment;
+		th_setup_info *&setup;
+		~HeaderCleanup() { th_comment_clear(&comment); th_setup_free(setup); }
+	} cleanup{comment, setupInfo};
 	int ret;
 
 	demuxer.readPacket(packet);
@@ -147,7 +155,6 @@ void TheoraVideoStream::parseHeader()
 
 	if (ret < 0)
 	{
-		th_comment_clear(&comment);
 		throw love::Exception("Could not find header");
 	}
 
@@ -157,10 +164,17 @@ void TheoraVideoStream::parseHeader()
 		ret = th_decode_headerin(&videoInfo, &comment, &setupInfo, &packet);
 	}
 
-	th_comment_clear(&comment);
+	if (ret < 0) throw love::Exception("Invalid Theora header");
 
+#ifdef LOVE_SCUA_HOST
+	// SCUA fork: bound native decoder allocations before decoding frame planes.
+	if (videoInfo.pic_width == 0 || videoInfo.pic_height == 0 || videoInfo.frame_width > 4096 || videoInfo.frame_height > 4096)
+	{
+		throw love::Exception("Video dimensions must be in 1..4096");
+	}
+#endif
 	decoder = th_decode_alloc(&videoInfo, setupInfo);
-	th_setup_free(setupInfo);
+	if (!decoder) throw love::Exception("Could not allocate Theora decoder");
 
 	Frame *buffers[2] = {backBuffer, frontBuffer};
 

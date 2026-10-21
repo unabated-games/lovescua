@@ -1,0 +1,239 @@
+import love
+import fs
+import bytes
+
+record Vertex { VertexPosition: vec4, VertexColor: vec4 }
+record IndexedArguments { count: int, instances: int, first: int, base_vertex: int, base_instance: int }
+record DrawArguments { count: int, instances: int, first: int, base_instance: int }
+record DispatchArguments { x: int, y: int, z: int }
+let indexed=nil
+let generated=nil
+let strip=nil
+let compute=nil
+let texture_shader=nil
+let texel_shader=nil
+let draw_arguments=nil
+let strip_arguments=nil
+let dispatch_arguments=nil
+let transfer=nil
+let canvas=nil
+let ticks=0
+let can_compute=false
+let can_indirect=false
+let can_texel=false
+
+fn source(name: string) -> string
+  match fs.read_text(`res:{name}`)
+    Ok(code) -> return code
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> nil
+  end
+end
+
+fn make_quad()
+  let data=love.graphics.new_buffer([{name="VertexPosition",format="floatvec4"},{name="VertexColor",format="floatvec4"}],4)
+  let color=vec4(1,0.3,0.1,1)
+  let vertices: {Vertex}=[
+    {VertexPosition=vec4(-50,-50,0,1),VertexColor=color},
+    {VertexPosition=vec4(50,-50,0,1),VertexColor=color},
+    {VertexPosition=vec4(-50,50,0,1),VertexColor=color},
+    {VertexPosition=vec4(50,50,0,1),VertexColor=color},
+  ]
+  love.graphics.buffer_set_data(data,vertices)
+  let mesh=love.graphics.mesh_from_buffer(data,"triangles")
+  assert(love.graphics.mesh_vertex_buffer(mesh)==nil)
+  must_fail("index usage",fn() love.graphics.mesh_set_index_buffer(mesh,data) end)
+  let short=love.graphics.new_buffer([{name="position",format="floatvec2"}],2)
+  must_fail("vertex attribute capacity",fn() love.graphics.mesh_attach_attribute(mesh,"Short",short,"position","pervertex") end)
+  love.graphics.release(short)
+  love.graphics.release(data)
+  let classic=love.graphics.new_mesh([{position=vec2(0,0),uv=vec2(0,0),color=vec4(1,1,1,1)},{position=vec2(1,0),uv=vec2(0,0),color=vec4(1,1,1,1)},{position=vec2(0,1),uv=vec2(0,0),color=vec4(1,1,1,1)}],"triangles")
+  let own=love.graphics.mesh_vertex_buffer(classic)
+  assert(love.graphics.buffer_info(own).length==3)
+  love.graphics.release(classic)
+  assert(love.graphics.buffer_info(own).length==3)
+  love.graphics.release(own)
+  let indices=love.graphics.new_buffer([{name="index",format="uint32"}],6,["index"])
+  love.graphics.buffer_set_data(indices,[0,1,2,1,3,2])
+  love.graphics.mesh_set_index_buffer(mesh,indices)
+  assert(love.graphics.mesh_index_count(mesh)==6)
+  love.graphics.release(indices)
+  let alias=love.graphics.mesh_index_buffer(mesh)
+  assert(love.graphics.buffer_info(alias).length==6)
+  love.graphics.release(alias)
+  return mesh
+end
+
+fn setup_arrays()
+  texture_shader=love.graphics.new_shader(source("textures.glsl"))
+  assert(love.graphics.shader_has_stage(texture_shader,"vertex"))
+  assert(love.graphics.shader_has_stage(texture_shader,"pixel"))
+  assert(not love.graphics.shader_has_stage(texture_shader,"compute"))
+  must_fail("dispatch drawing shader",fn() love.graphics.dispatch_threadgroups(texture_shader,1) end)
+  must_fail("threadgroup stage",fn() love.graphics.shader_threadgroup_size(texture_shader) end)
+  let pixels=love.image.new_data(1,1)
+  love.image.set_pixel(pixels,0,0,vec4(1,0,0,1))
+  let red=love.graphics.new_image_from_data(pixels)
+  love.image.set_pixel(pixels,0,0,vec4(0,0,1,1))
+  let blue=love.graphics.new_image_from_data(pixels)
+  love.graphics.shader_send_textures(texture_shader,"layers",[red,blue])
+  must_fail("sampler array bounds",fn() love.graphics.shader_send_textures(texture_shader,"layers",[red,blue,red]) end)
+  must_fail("sampler type",fn() love.graphics.shader_send_textures(texture_shader,"layers",[red,pixels]) end)
+  love.graphics.release(red)
+  love.graphics.release(blue)
+  love.graphics.release(pixels)
+  if can_texel then
+    texel_shader=love.graphics.new_shader(source("texels.glsl"))
+    let first=love.graphics.new_buffer([{name="color",format="floatvec4"}],1,["texel"])
+    let second=love.graphics.new_buffer([{name="color",format="floatvec4"}],1,["texel"])
+    love.graphics.buffer_set_data(first,[vec4(1,1,0,1)])
+    love.graphics.buffer_set_data(second,[vec4(0,1,1,1)])
+    love.graphics.shader_send_buffers(texel_shader,"colors",[first,second])
+    must_fail("buffer array bounds",fn() love.graphics.shader_send_buffers(texel_shader,"colors",[first,second,first]) end)
+    love.graphics.release(first)
+    love.graphics.release(second)
+  end
+end
+
+fn setup_compute()
+  let code=source("vertices.glsl")
+  if not can_compute then
+    must_fail("unsupported compute",fn() love.graphics.new_compute_shader(code) end)
+    return
+  end
+  compute=love.graphics.new_compute_shader(code)
+  assert(love.graphics.shader_has_stage(compute,"compute"))
+  assert(not love.graphics.shader_has_stage(compute,"pixel"))
+  assert(love.graphics.shader_threadgroup_size(compute)==vec3(4,1,1))
+  let format=love.graphics.shader_buffer_format(compute,"Vertices")
+  assert(format.len()==2)
+  assert(love.graphics.shader_buffer_format(compute,"missing")==nil)
+  let vertices=love.graphics.new_buffer(format,4,["vertex","shaderstorage"])
+  love.graphics.shader_send_buffers(compute,"Vertices",[vertices])
+  let tint_format=love.graphics.shader_buffer_format(compute,"Tint")
+  let first=love.graphics.new_buffer(tint_format,1,["shaderstorage"])
+  let second=love.graphics.new_buffer(tint_format,1,["shaderstorage"])
+  love.graphics.buffer_set_data(first,[vec4(0.25,0.25,0.25,0.25)])
+  love.graphics.buffer_set_data(second,[vec4(0.75,0.75,0.75,0.75)])
+  love.graphics.shader_send_buffers(compute,"Tint",[first,second])
+  love.graphics.release(first)
+  love.graphics.release(second)
+  love.graphics.shader_send(compute,"shift",0)
+  love.graphics.shader_send(compute,"tint",vec4(0,1,0.5,1))
+  must_fail("zero workgroups",fn() love.graphics.dispatch_threadgroups(compute,0) end)
+  must_fail("workgroup bound",fn() love.graphics.dispatch_threadgroups(compute,65535,65535) end)
+  love.graphics.dispatch_threadgroups(compute,1)
+  transfer=love.graphics.buffer_read_async(vertices)
+  generated=love.graphics.mesh_from_buffer(vertices,"triangles")
+  strip=love.graphics.mesh_from_buffer(vertices,"strip")
+  let indices=love.graphics.mesh_index_buffer(indexed)
+  love.graphics.mesh_set_index_buffer(generated,indices)
+  love.graphics.release(indices)
+  love.graphics.release(vertices)
+  if can_indirect then
+    let draw_format=[{name="count",format="uint32"},{name="instances",format="uint32"},{name="first",format="uint32"},{name="base_vertex",format="int32"},{name="base_instance",format="uint32"}]
+    draw_arguments=love.graphics.new_buffer(draw_format,1,["indirectarguments"])
+    let args: {IndexedArguments}=[{count=6,instances=1,first=0,base_vertex=0,base_instance=0}]
+    love.graphics.buffer_set_data(draw_arguments,args)
+    strip_arguments=love.graphics.new_buffer([{name="count",format="uint32"},{name="instances",format="uint32"},{name="first",format="uint32"},{name="base_instance",format="uint32"}],2,["indirectarguments"])
+    let strip_args: {DrawArguments}=[{count=0,instances=0,first=0,base_instance=0},{count=4,instances=1,first=0,base_instance=0}]
+    love.graphics.buffer_set_data(strip_arguments,strip_args)
+    dispatch_arguments=love.graphics.new_buffer([{name="x",format="uint32"},{name="y",format="uint32"},{name="z",format="uint32"}],2,["indirectarguments"])
+    let groups: {DispatchArguments}=[{x=1,y=1,z=1},{x=1,y=1,z=1}]
+    love.graphics.buffer_set_data(dispatch_arguments,groups)
+    love.graphics.shader_send(compute,"shift",10)
+    love.graphics.shader_send(compute,"tint",vec4(0.1,0.7,0.9,1))
+    love.graphics.dispatch_indirect(compute,dispatch_arguments,1)
+  end
+  love.graphics.set_shader(nil)
+end
+
+fn load()
+  love.window.set_title("SCUA / indexed buffers, compute, indirect commands and resource arrays")
+  can_compute=love.graphics.is_supported("glsl4")
+  can_indirect=love.graphics.is_supported("indirectdraw")
+  can_texel=love.graphics.is_supported("texelbuffer")
+  indexed=make_quad()
+  setup_arrays()
+  setup_compute()
+  canvas=love.graphics.new_canvas(960,640)
+end
+
+fn update(dt: float) ticks=ticks+1 end
+
+fn draw()
+  love.graphics.set_canvas(canvas)
+  love.graphics.clear(vec4(0,0,0,0))
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.set_shader(nil)
+  love.graphics.draw_mesh(indexed,vec2(160,220))
+  love.graphics.set_shader(texture_shader)
+  love.graphics.rectangle("fill",vec2(430,170),vec2(100,100))
+  if can_texel then
+    love.graphics.set_shader(texel_shader)
+    love.graphics.rectangle("fill",vec2(110,410),vec2(100,100))
+  end
+  love.graphics.set_shader(nil)
+  if can_compute then
+    if can_indirect then
+      must_fail("indirect argument layout",fn() love.graphics.draw_indirect(strip,draw_arguments,0,vec2(800,460)) end)
+      must_fail("indirect argument index",fn() love.graphics.draw_indirect(generated,draw_arguments,1,vec2(800,220)) end)
+      love.graphics.draw_indirect(generated,draw_arguments,0,vec2(800,220))
+      love.graphics.draw_indirect(strip,strip_arguments,1,vec2(800,460))
+    else
+      love.graphics.draw_mesh(generated,vec2(800,220))
+      love.graphics.draw_mesh(strip,vec2(800,460))
+    end
+  end
+  love.graphics.set_canvas(nil)
+  love.graphics.draw(canvas,vec2(0,0))
+  love.graphics.print(`Indexed GPU buffers / compute {can_compute} / indirect {can_indirect}`,vec2(25,25))
+  love.graphics.print("Retained indices",vec2(85,300))
+  love.graphics.print("Sampler array",vec2(415,300))
+  love.graphics.print("Compute + indexed",vec2(705,300))
+  love.graphics.print("Texel buffer array",vec2(65,540))
+  love.graphics.print("Compute + indirect strip",vec2(685,540))
+  if not can_compute then love.graphics.print("This renderer uses the indexed fallback. Metal supports compute.",vec2(25,600)) end
+end
+
+fn keypressed(key: string)
+  if key=="Escape" then love.event.quit() end
+end
+
+fn verify()
+  assert(ticks==3)
+  let pixels=love.graphics.texture_readback(canvas)
+  let left=love.image.get_pixel(pixels,160,220)
+  let middle=love.image.get_pixel(pixels,480,220)
+  assert(left.x>0.9 and left.z<0.2)
+  assert(middle.x>0.4 and middle.z>0.4 and middle.y<0.1,`sampler array pixel: {middle}`)
+  if can_texel then
+    let value=love.image.get_pixel(pixels,160,460)
+    assert(value.x>0.4 and value.y>0.9 and value.z>0.4,`texel array pixel: {value}`)
+  end
+  if can_compute then
+    love.graphics.readback_wait(transfer)
+    let first=bytes.slice(love.graphics.readback_bytes(transfer),0,32)
+    assert(love.data.encode("hex",first)=="000048c2000048c2000000000000803f000000000000803f0000003f0000803f")
+    love.graphics.release(transfer)
+    let right=love.image.get_pixel(pixels,800,220)
+    let bottom=love.image.get_pixel(pixels,800,460)
+    if can_indirect then
+      assert(right.x<0.2 and right.y>0.6 and right.z>0.8,`indexed compute pixel: {right}`)
+      assert(bottom.x<0.2 and bottom.y>0.6 and bottom.z>0.8,`indirect strip pixel: {bottom}`)
+    else
+      assert(right.y>0.9 and bottom.y>0.9)
+    end
+  end
+  love.graphics.release(pixels)
+  love.graphics.mesh_set_index_buffer(indexed,nil)
+  assert(love.graphics.mesh_index_count(indexed)==0)
+  assert(love.graphics.mesh_index_buffer(indexed)==nil)
+  print(`PASS: indexed buffers, retained resource arrays, compute={can_compute}, indirect={can_indirect}`)
+end

@@ -1,0 +1,92 @@
+import love
+
+record Widget { world: any, body: any, joint: any, label: string, anchor: vec2 }
+let widgets: { Widget } = []
+let ticks = 0
+
+fn make_joint(kind: string, a, b, anchor: vec2)
+  match kind
+    "distance" -> return love.physics.new_distance_joint(a, b, anchor, anchor + vec2(60, 0))
+    "revolute" -> return love.physics.new_revolute_joint(a, b, anchor)
+    "prismatic" -> return love.physics.new_prismatic_joint(a, b, anchor, vec2(1, 0))
+    "wheel" -> return love.physics.new_wheel_joint(a, b, anchor + vec2(60, 0), vec2(0, 1))
+    "weld" -> return love.physics.new_weld_joint(a, b, anchor)
+    "friction" -> return love.physics.new_friction_joint(a, b, anchor)
+    "motor" -> return love.physics.new_motor_joint(a, b, 0.3)
+    "mouse" -> return love.physics.new_mouse_joint(a, b, anchor + vec2(60, 0), 50000)
+    "pulley" -> return love.physics.new_pulley_joint(a, b, anchor - vec2(0, 50), anchor + vec2(60, -50), anchor, anchor + vec2(60, 0), 1)
+    "rope" -> return love.physics.new_rope_joint(a, b, anchor, anchor + vec2(60, 0), 80)
+    _ -> assert(false, "unknown joint")
+  end
+end
+
+fn load()
+  love.window.set_title("SCUA / complete Box2D joint families")
+  let labels = ["distance", "revolute", "prismatic", "wheel", "weld", "friction", "motor", "mouse", "pulley", "rope"]
+  for i, label in labels do
+    let anchor = vec2(70 + (i % 4) * 235, 140 + floor(i / 4) * 170)
+    let world = love.physics.new_world(vec2(0, 40))
+    let a = love.physics.new_body(world, anchor, "static")
+    let b = love.physics.new_body(world, anchor + vec2(60, 0), "dynamic")
+    love.physics.new_box(b, vec2(20, 20), 1)
+    let joint = make_joint(label, a, b, anchor)
+    if label == "distance" or label == "wheel" or label == "weld" or label == "mouse" then love.physics.joint_set_spring(joint, 4, 0.7) end
+    if label == "revolute" or label == "wheel" or label == "prismatic" then
+      love.physics.joint_set_motor(joint, true, 0.5, 100000)
+      love.physics.joint_set_limits(joint, true, -0.5, 0.5)
+    end
+    if label == "friction" or label == "motor" or label == "mouse" then love.physics.joint_set_force_limits(joint, 50000, 50000) end
+    if label == "motor" then love.physics.joint_set_offsets(joint, vec2(60, 0), 0) end
+    if label == "mouse" then love.physics.joint_set_target(joint, anchor + vec2(70, 10)) end
+    widgets.push({ world = world, body = b, joint = joint, label = label, anchor = anchor })
+  end
+  let world = love.physics.new_world(vec2(0, 0))
+  let ground = love.physics.new_body(world, vec2(540, 480), "static")
+  let a = love.physics.new_body(world, vec2(540, 480), "dynamic")
+  let b = love.physics.new_body(world, vec2(620, 480), "dynamic")
+  love.physics.new_circle(a, 20, 1)
+  love.physics.new_circle(b, 20, 1)
+  let one = love.physics.new_revolute_joint(ground, a, vec2(540, 480))
+  let two = love.physics.new_revolute_joint(ground, b, vec2(620, 480))
+  let gear = love.physics.new_gear_joint(one, two, -2)
+  love.physics.joint_set_ratio(gear, -1.5)
+  love.physics.body_set_angular_velocity(a, 2)
+  widgets.push({ world = world, body = b, joint = gear, label = "gear", anchor = vec2(540, 480) })
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  for item in widgets do love.physics.world_step(item.world, dt) end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(1, 1, 1, 1))
+  love.graphics.print("Native joints / motors / limits / springs / gear dependencies", vec2(25, 25))
+  for item in widgets do
+    let position = love.physics.body_position(item.body)
+    love.graphics.set_color(vec4(0.5, 0.6, 0.7, 1))
+    love.graphics.line([item.anchor, position])
+    love.graphics.circle("line", item.anchor, 4)
+    love.graphics.set_color(vec4(0.3, 0.9, 0.75, 1))
+    love.graphics.push_state()
+    love.graphics.translate(position)
+    love.graphics.rotate(love.physics.body_angle(item.body))
+    love.graphics.rectangle("fill", vec2(-10, -10), vec2(20, 20))
+    love.graphics.pop_state()
+    love.graphics.set_color(vec4(1, 1, 1, 1))
+    love.graphics.print(item.label, item.anchor - vec2(30, 70))
+  end
+end
+
+fn verify()
+  assert(ticks == 180 and widgets.len() == 11)
+  for item in widgets do
+    let info = love.physics.joint_info(item.joint)
+    assert(info.kind == item.label or item.label == "rope" and info.kind == "distance")
+    assert(love.physics.joint_reaction(item.joint, 1 / 60).x == love.physics.joint_reaction(item.joint, 1 / 60).x)
+  end
+  let gear = widgets[10]
+  love.physics.body_destroy(gear.body)
+  assert(love.physics.joint_is_destroyed(gear.joint))
+  print("PASS: joint families, motors, limits, springs and gear lifetime")
+end

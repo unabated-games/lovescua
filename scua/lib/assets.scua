@@ -1,0 +1,12 @@
+-- Resource paths are resolved by SCUA; C++ receives encoded bytes only.
+import fs
+import love_graphics
+
+fn image(path: string)
+  match fs.read(path)
+    Ok(encoded) -> return love_graphics.new_image(encoded)
+    Error(error) -> assert(false, `could not load image {path}: {tostring(error)}`)
+  end
+end
+
+return { image = image }

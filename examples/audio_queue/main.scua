@@ -1,0 +1,96 @@
+import love
+import math
+import fs
+import love_audio as audio
+import love_sound as sound
+
+record Parameter { name: string, value: any }
+let pcm=nil
+let output=nil
+let decoded=0
+let ticks=0
+let effects=false
+
+fn load()
+  love.window.set_title("SCUA / queueable audio, decoders, effects and spatial listener")
+  pcm=sound.new_data(2000,8000,16,1)
+  for i in 0:2000 do sound.set_sample(pcm,i,1,math.sin(i*6.28318530718*330/8000)*0.12) end
+  output=audio.new_queue(8000,16,1,4)
+  assert(audio.source_type(output)=="queue")
+  for i in 0:4 do assert(audio.queue(output,pcm)) end
+  assert(audio.free_buffers(output)==0)
+  audio.set_volume(output,0.3)
+  audio.set_relative(output,true)
+  audio.set_cone(output,vec4(1,2,0.5,0.7))
+  assert(abs(audio.cone(output).x-1)<0.018)
+  audio.set_listener_velocity(vec3(0,0,0))
+  audio.set_listener_orientation(vec3(0,0,-1),vec3(0,1,0))
+  assert(audio.listener_orientation().up.y==1)
+  assert(audio.listener_velocity().length()==0)
+  audio.set_doppler(1)
+  assert(audio.doppler()==1)
+  audio.set_distance_model("inverseclamped")
+  assert(audio.distance_model()=="inverseclamped")
+  effects=audio.effects_info().supported
+  if effects then
+    let parameters: {Parameter} = [{name="gain",value=0.3},{name="decaytime",value=0.8}]
+    assert(audio.set_effect("room","reverb",parameters))
+    assert(audio.effects().len()==1)
+    assert(audio.attach_effect(output,"room"))
+    assert(audio.source_effects(output).len()==1)
+    assert(audio.set_filter(output,"lowpass",[{name="highgain",value=0.7}]))
+  end
+  match fs.read("res:click.ogg")
+    Ok(encoded) -> do
+      let decoder=sound.new_decoder(encoded)
+      assert(sound.decoder_info(decoder).channels>0)
+      let clone=sound.decoder_clone(decoder)
+      assert(sound.decode_next(clone)!=nil)
+      let chunk=sound.decode_next(decoder)
+      while chunk!=nil do
+        decoded=decoded+sound.info(chunk).samples
+        chunk=sound.decode_next(decoder)
+      end
+      assert(sound.decoder_info(decoder).finished)
+      assert(sound.decoder_seek(decoder,0))
+      assert(sound.decode_next(decoder)!=nil)
+    end
+    Error(reason) -> assert(false,tostring(reason))
+  end
+  assert(audio.play(output))
+end
+
+fn update(dt: float)
+  ticks=ticks+1
+  while audio.free_buffers(output)>0 do assert(audio.queue(output,pcm)) end
+  if not audio.is_playing(output) then audio.play(output) end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.4,0.9,0.7,1))
+  love.graphics.print("Queueable PCM / incremental Ogg decode / effects",vec2(30,30))
+  let wave=[]
+  for i in 0:400 do wave.push(vec2(30+i*2.2,300+sound.get_sample(pcm,i,1)*800)) end
+  love.graphics.line(wave)
+  love.graphics.print(`Decoded {decoded} PCM frames / EFX {effects}`,vec2(30,500))
+  love.graphics.print("Synthesized tone replenishes four native queue buffers. Escape quits.",vec2(30,550))
+end
+
+fn keypressed(key: string)
+  if key=="Escape" then love.event.quit() end
+end
+
+fn verify()
+  assert(ticks==3 and decoded>0)
+  assert(audio.free_buffers(output)>=0)
+  if effects then
+    assert(audio.detach_effect(output,"room"))
+    assert(audio.clear_filter(output))
+    assert(audio.remove_effect("room"))
+    assert(audio.effects().len()==0)
+  end
+  audio.stop(output)
+  print("PASS: queues, incremental decoders, listener and effects")
+end
+
+fn quit() audio.stop_all() end

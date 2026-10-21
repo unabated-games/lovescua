@@ -1,0 +1,66 @@
+import love
+
+-- Custom events retain SCUA records until delivery at the next frame boundary.
+enum Command { Increment, Finished }
+record Message { command: Command, value: int }
+let delivered = 0
+let ticks = 0
+let last_input = "Move/click the mouse, type, or use the wheel"
+
+fn load()
+  love.window.set_title("LÖVE + SCUA / callbacks and custom events")
+  love.keyboard.set_text_input(true)
+  love.event.post("message", { command = Command.Increment, value = 2 })
+end
+
+fn event(name: string, message: Message)
+  assert(name == "message")
+  match message.command
+    Command.Increment -> do
+      delivered = delivered + message.value
+      love.event.post("message", { command = Command.Finished, value = 3 })
+    end
+    Command.Finished -> delivered = delivered + message.value
+  end
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  if ticks == 1 then assert(delivered == 2) end
+  if ticks == 2 then assert(delivered == 5) end
+end
+
+fn mousepressed(position: vec2, button: int)
+  last_input = `Mouse button {button} at {position}`
+end
+
+fn mousereleased(position: vec2, button: int)
+  last_input = `Released {button} at {position}`
+end
+
+fn mousemoved(position: vec2, delta: vec2)
+  last_input = `Mouse {position} / delta {delta}`
+end
+
+fn wheelmoved(delta: vec2)
+  last_input = `Wheel {delta}`
+end
+
+fn textinput(text: string)
+  last_input = `Text: {text}`
+end
+
+fn keyreleased(key: string)
+  if key == "Escape" then love.event.quit() end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.6, 0.9, 1, 1))
+  love.graphics.print(last_input, vec2(30, 100))
+  love.graphics.print(`Custom event total: {delivered}`, vec2(30, 160))
+end
+
+fn verify()
+  assert(ticks == 3 and delivered == 5)
+  print("PASS: deferred custom events and typed payloads")
+end

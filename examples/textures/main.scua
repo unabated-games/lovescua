@@ -1,0 +1,251 @@
+import love
+import fs
+import bytes
+import math
+
+record Panel { label: string, image: any, position: vec2 }
+record IndexedArguments { count: int, instances: int, first: int, base_vertex: int, base_instance: int }
+record DrawArguments { count: int, instances: int, first: int, base_instance: int }
+let panels: {Panel}=[]
+let array=nil
+let cube_shader=nil
+let volume_shader=nil
+let depth_shader=nil
+let procedural=nil
+let storage=nil
+let compute=nil
+let copy=nil
+let color=nil
+let depth=nil
+let indices=nil
+let indirect=nil
+let indexed_indirect=nil
+let canvas=nil
+let ticks=0
+let elapsed=0.0
+let initialized=false
+let compute_supported=false
+let indirect_supported=false
+let copied=false
+let compressed_format=""
+
+fn read(name: string)
+  match fs.read(`res:{name}`)
+    Ok(data) -> return data
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+
+fn source(name: string) -> string
+  match fs.read_text(`res:{name}`)
+    Ok(code) -> return code
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> nil
+  end
+end
+
+fn solid(color: vec4)
+  let image=love.image.new_data(4,4)
+  for y in 0:4 do
+    for x in 0:4 do love.image.set_pixel(image,x,y,color) end
+  end
+  return image
+end
+
+fn load()
+  love.window.set_title("SCUA / texture layers, compressed blocks, persistent depth, compute images and GPU copies")
+  compute_supported=love.graphics.is_supported("glsl4")
+  indirect_supported=love.graphics.is_supported("indirectdraw")
+  let red=solid(vec4(1,0,0,1))
+  let green=solid(vec4(0,1,0,1))
+  let blue=solid(vec4(0,0,1,1))
+  array=love.graphics.new_texture({type="array",mipmaps="auto"},[red,green])
+  love.graphics.texture_set_sampler(array,{min_filter="nearest",mag_filter="nearest",mipmap_filter="nearest",wrap_u="repeat"})
+  assert(love.graphics.texture_sampler(array).wrap_u=="repeat")
+  let array_info=love.graphics.texture_info(array)
+  assert(array_info.layers==2,`array metadata type={array_info.type} layers={array_info.layers} width={array_info.width}`)
+  assert(love.graphics.texture_info(array).mipmaps==3)
+  love.graphics.texture_replace(array,blue,0)
+  love.graphics.texture_generate_mipmaps(array)
+  let faces=love.graphics.new_texture({type="cube"},[red,green,blue,green,red,blue])
+  cube_shader=love.graphics.new_shader(source("cube.glsl"))
+  love.graphics.shader_send_textures(cube_shader,"cube",[faces])
+  assert(love.graphics.texture_info(faces).layers==6)
+  love.graphics.release(faces)
+  let volume=love.graphics.new_texture({type="volume"},[red,blue])
+  volume_shader=love.graphics.new_shader(source("volume.glsl"))
+  love.graphics.shader_send_textures(volume_shader,"volume",[volume])
+  love.graphics.release(volume)
+  for format in ["DXT1","ASTC4x4"] do
+    if compressed_format=="" and love.graphics.texture_format_supported(format,["sample"]) then compressed_format=format end
+  end
+  assert(compressed_format!="","no supported compressed fixture format")
+  let name=if compressed_format=="DXT1" then "red.dds" else "red.astc" end
+  let data=love.image.decode_compressed(read(name))
+  let info=love.image.compressed_info(data)
+  assert(info.width==4 and info.height==4 and info.mipmaps==1 and info.format==compressed_format)
+  assert(love.image.compressed_bytes(data,0,0).len()>0)
+  let compressed=love.graphics.new_compressed_texture(data)
+  love.graphics.texture_replace_compressed(compressed,data)
+  love.graphics.release(data)
+  panels.push({label=`Compressed {compressed_format}`,image=compressed,position=vec2(480,90)})
+  must_fail("invalid compressed file",fn() love.image.decode_compressed(bytes.from_string("invalid")) end)
+  must_fail("missing cube faces",fn() love.graphics.new_texture({type="cube"},[red,green]) end)
+  must_fail("invalid layer",fn() love.graphics.texture_replace(array,red,2) end)
+  must_fail("invalid region",fn() love.graphics.texture_read(array,0,0,vec4(4,0,4,4)) end)
+  must_fail("missing base image",fn() love.graphics.new_texture({type="array"},[{data=red,layer=1}]) end)
+  must_fail("duplicate slice",fn() love.graphics.new_texture({type="array"},[{data=red},{data=green}]) end)
+  must_fail("allocation limit",fn() love.graphics.new_texture({type="array",width=4096,height=4096,layers=256}) end)
+  love.graphics.release(red)
+  love.graphics.release(green)
+  love.graphics.release(blue)
+  color=love.graphics.new_texture({width=64,height=64,render_target=true})
+  let original_depth=love.graphics.new_texture({width=64,height=64,format="depth32f",render_target=true,readable=true})
+  assert(love.graphics.texture_info(original_depth).readable)
+  if compute_supported then
+    depth=love.graphics.texture_view(original_depth,{})
+    love.graphics.release(original_depth)
+  else
+    must_fail("unsupported texture view",fn() love.graphics.texture_view(original_depth,{}) end)
+    depth=original_depth
+  end
+  depth_shader=love.graphics.new_shader(source("depth.glsl"))
+  love.graphics.shader_send_textures(depth_shader,"depth_texture",[depth])
+  storage=love.graphics.new_texture({width=64,height=64,format="rgba8",render_target=true,compute_write=compute_supported})
+  copy=love.graphics.new_texture({width=64,height=64,format="rgba8",render_target=true})
+  if compute_supported then
+    assert(love.graphics.texture_format_supported("rgba8",["sample","computewrite"]))
+    compute=love.graphics.new_compute_shader(source("compute.glsl"))
+    love.graphics.shader_send_textures(compute,"target",[storage])
+  end
+  procedural=love.graphics.new_shader(source("procedural.glsl"))
+  indices=love.graphics.new_buffer([{name="index",format="uint32"}],3,["index"])
+  love.graphics.buffer_set_data(indices,[0,1,2])
+  if indirect_supported then
+    indirect=love.graphics.new_buffer([{name="count",format="uint32"},{name="instances",format="uint32"},{name="first",format="uint32"},{name="base_instance",format="uint32"}],2,["indirectarguments"])
+    let draws: {DrawArguments}=[{count=0,instances=0,first=0,base_instance=0},{count=3,instances=1,first=0,base_instance=0}]
+    love.graphics.buffer_set_data(indirect,draws)
+    indexed_indirect=love.graphics.new_buffer([{name="count",format="uint32"},{name="instances",format="uint32"},{name="first",format="uint32"},{name="base_vertex",format="int32"},{name="base_instance",format="uint32"}],2,["indirectarguments"])
+    let indexed: {IndexedArguments}=[{count=0,instances=0,first=0,base_vertex=0,base_instance=0},{count=3,instances=1,first=0,base_vertex=0,base_instance=0}]
+    love.graphics.buffer_set_data(indexed_indirect,indexed)
+  end
+  canvas=love.graphics.new_canvas(960,640)
+end
+
+fn update(dt: float) ticks=ticks+1 elapsed=elapsed+dt end
+
+fn draw_procedural(position: vec2, variant: int)
+  love.graphics.push_state()
+  love.graphics.translate(position)
+  if variant==0 then love.graphics.draw_from_shader("triangles",3) end
+  if variant==1 then love.graphics.draw_from_shader_indexed(indices,3) end
+  if variant==2 then love.graphics.draw_from_shader_indirect("triangles",indirect,1) end
+  if variant==3 then love.graphics.draw_from_shader_indexed_indirect(indices,indexed_indirect,1) end
+  love.graphics.pop_state()
+end
+
+fn draw()
+  love.graphics.set_color(vec4(1,1,1,1))
+  if not initialized then
+    love.graphics.set_render_targets([color],depth)
+    love.graphics.clear(vec4(0,0,0,1),0,1)
+    love.graphics.set_depth_mode("always",true)
+    love.graphics.set_color(vec4(0,1,0,1))
+    love.graphics.rectangle("fill",vec2(0,0),vec2(64,64))
+    love.graphics.set_depth_mode("always",false)
+    love.graphics.set_render_targets([])
+    initialized=true
+  end
+  love.graphics.set_render_targets([color],depth)
+  love.graphics.set_depth_mode("less",false)
+  love.graphics.set_color(vec4(1,0,0,1))
+  love.graphics.rectangle("fill",vec2(0,0),vec2(64,64))
+  love.graphics.set_depth_mode("always",false)
+  love.graphics.set_render_targets([])
+  love.graphics.set_color(vec4(1,1,1,1))
+  if compute_supported then
+    love.graphics.shader_send(compute,"phase",0.5+0.4*math.sin(elapsed*1.5))
+    love.graphics.dispatch_threadgroups(compute,8,8)
+    love.graphics.set_shader(nil)
+  else
+    love.graphics.set_render_targets([storage])
+    love.graphics.clear(vec4(0.5,0.5,0.5,1))
+    love.graphics.set_render_targets([])
+  end
+  love.graphics.copy_texture(storage,copy)
+  if not copied then
+    let buffer=love.graphics.new_buffer([{name="pixel",format="uint32"}],4096)
+    love.graphics.copy_texture_to_buffer(copy,buffer)
+    love.graphics.copy_buffer_to_texture(buffer,storage)
+    love.graphics.release(buffer)
+    copied=true
+  end
+  love.graphics.set_canvas(canvas)
+  love.graphics.clear(vec4(0.025,0.025,0.035,1))
+  love.graphics.draw_layer(array,0,vec2(40,90),0,vec2(24,24))
+  love.graphics.draw_layer(array,1,vec2(180,90),0,vec2(24,24))
+  love.graphics.set_shader(cube_shader)
+  love.graphics.rectangle("fill",vec2(340,90),vec2(96,96))
+  love.graphics.set_shader(nil)
+  for panel in panels do love.graphics.draw(panel.image,panel.position,0,vec2(24,24)) end
+  love.graphics.set_shader(volume_shader)
+  love.graphics.rectangle("fill",vec2(640,90),vec2(96,96))
+  love.graphics.set_shader(nil)
+  love.graphics.draw(color,vec2(40,300),0,vec2(1.5,1.5))
+  love.graphics.set_shader(depth_shader)
+  love.graphics.rectangle("fill",vec2(180,300),vec2(96,96))
+  love.graphics.set_shader(nil)
+  love.graphics.draw(storage,vec2(340,300),0,vec2(1.5,1.5))
+  love.graphics.draw(copy,vec2(480,300),0,vec2(1.5,1.5))
+  love.graphics.set_shader(procedural)
+  draw_procedural(vec2(40,500),0)
+  draw_procedural(vec2(180,500),1)
+  if indirect_supported then
+    draw_procedural(vec2(340,500),2)
+    draw_procedural(vec2(480,500),3)
+  end
+  love.graphics.set_shader(nil)
+  love.graphics.set_canvas(nil)
+  love.graphics.draw(canvas,vec2(0,0))
+  love.graphics.print("Texture layers / cube / compressed / volume",vec2(35,35))
+  love.graphics.print("Persistent depth / sampled depth / compute image / GPU copy",vec2(35,250))
+  love.graphics.print("Shader vertices / indexed / indirect / indexed indirect",vec2(35,455))
+end
+
+fn keypressed(key: string) if key=="Escape" then love.event.quit() end end
+
+fn check(image, position: vec2, expected: vec4)
+  let value=love.image.get_pixel(image,position.x,position.y)
+  assert(abs(value.x-expected.x)<0.08 and abs(value.y-expected.y)<0.08 and abs(value.z-expected.z)<0.08,`pixel {position}: got {value}, expected {expected}`)
+end
+
+fn verify()
+  assert(ticks==3)
+  let image=love.graphics.texture_read(canvas)
+  check(image,vec2(80,130),vec4(0,0,1,1))
+  check(image,vec2(220,130),vec4(0,1,0,1))
+  check(image,vec2(380,130),vec4(1,0,0,1))
+  check(image,vec2(520,130),vec4(1,0,0,1))
+  check(image,vec2(680,130),vec4(0,0,1,1))
+  check(image,vec2(80,340),vec4(0,1,0,1))
+  let sampled=love.image.get_pixel(image,220,340)
+  assert(sampled.x>0.1 and sampled.x<0.9 and abs(sampled.x-sampled.y)<0.01,`depth sample {sampled}`)
+  let phase=if compute_supported then 0.5+0.4*math.sin(elapsed*1.5) else 0.5 end
+  check(image,vec2(388,348),vec4(0.5,0.5,phase,1))
+  check(image,vec2(528,348),vec4(0.5,0.5,phase,1))
+  for x in [50,190] do check(image,vec2(x,510),vec4(0.2,0.8,0.9,1)) end
+  if indirect_supported then
+    for x in [350,490] do check(image,vec2(x,510),vec4(0.2,0.8,0.9,1)) end
+  end
+  let partial=love.graphics.texture_read(copy,0,0,vec4(30,30,4,4))
+  assert(love.image.dimensions(partial)==vec2(4,4))
+  love.graphics.release(partial)
+  love.graphics.release(image)
+  print(`PASS: array/cube/volume/{compressed_format}, persistent/sampleable depth, compute={compute_supported}, GPU copies, shader draws, indirect={indirect_supported}`)
+end

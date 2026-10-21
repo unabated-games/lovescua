@@ -1,0 +1,3 @@
+SCUA resource packs
+Read-only game assets
+Explicit user-folder saves

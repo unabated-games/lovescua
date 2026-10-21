@@ -1,0 +1,43 @@
+# Prefer an installed SDL3. Fetching is explicit so offline builds stay predictable.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    message(FATAL_ERROR "The initial SCUA host currently supports macOS only.")
+endif()
+
+option(LOVE_SCUA_AUDIO "Build the native LÖVE audio/sound bindings" ON)
+option(LOVE_SCUA_FETCH_OPENAL "Build a pinned OpenAL Soft for audio" OFF)
+if(LOVE_SCUA_AUDIO)
+    if(LOVE_SCUA_FETCH_OPENAL)
+        include(FetchContent)
+        set(ALSOFT_UTILS OFF CACHE BOOL "" FORCE)
+        set(ALSOFT_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(ALSOFT_TESTS OFF CACHE BOOL "" FORCE)
+        set(ALSOFT_INSTALL OFF CACHE BOOL "" FORCE)
+        set(LIBTYPE STATIC CACHE STRING "" FORCE)
+        FetchContent_Declare(openal_soft
+            URL https://github.com/kcat/openal-soft/archive/refs/tags/1.24.3.tar.gz
+            URL_HASH SHA256=7e1fecdeb45e7f78722b776c5cf30bd33934b961d7fd2a11e0494e064cc631ce)
+        FetchContent_MakeAvailable(openal_soft)
+    else()
+        find_package(OpenAL REQUIRED)
+    endif()
+endif()
+if(APPLE)
+    enable_language(OBJC OBJCXX)
+endif()
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
+option(LOVE_SCUA_FETCH_SDL "Download and build SDL3 when it is not installed" OFF)
+find_package(SDL3 3.1.3 QUIET CONFIG)
+if(NOT TARGET SDL3::SDL3 AND LOVE_SCUA_FETCH_SDL)
+    include(FetchContent)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+        URL https://www.libsdl.org/release/SDL3-3.2.28.tar.gz
+        URL_HASH SHA256=1330671214d146f8aeb1ed399fc3e081873cdb38b5189d1f8bb6ab15bbc04211
+    )
+    FetchContent_MakeAvailable(SDL3)
+endif()

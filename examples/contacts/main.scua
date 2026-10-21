@@ -1,0 +1,79 @@
+import love
+
+record ContactCounts { begin: int = 0, finish: int = 0, pre: int = 0, post: int = 0 }
+let counts: ContactCounts = {}
+let solid = nil
+let ghost = nil
+let ball = nil
+let falling = nil
+let ticks = 0
+let ghost_id = 0
+
+fn make_world(x: float)
+  let w = love.physics.new_world(vec2(0, 600))
+  let floor = love.physics.new_body(w, vec2(x, 540), "static")
+  love.physics.new_box(floor, vec2(350, 30), 0)
+  return w
+end
+
+fn load()
+  love.window.set_title("SCUA contact callbacks / solid and ghost platforms")
+  solid = make_world(240)
+  ghost = make_world(720)
+  ghost_id = love.physics.world_stats(ghost).id
+  ball = love.physics.new_body(solid, vec2(240, 100), "dynamic")
+  love.physics.new_circle(ball, 25, 1)
+  falling = love.physics.new_body(ghost, vec2(720, 100), "dynamic")
+  love.physics.new_circle(falling, 25, 1)
+end
+
+fn begincontact(contact)
+  counts.begin = counts.begin + 1
+  assert(contact.touching)
+end
+
+fn endcontact(contact)
+  counts.finish = counts.finish + 1
+  assert(contact.normal.x == contact.normal.x and contact.normal.y == contact.normal.y)
+end
+
+-- Called synchronously before Box2D solves a collision. Return material changes
+-- as a SCUA record; no live native Contact pointer escapes into script code.
+fn presolve(contact)
+  counts.pre = counts.pre + 1
+  if contact.world == ghost_id then return { enabled = false } end
+  assert(contact.normal.length() > 0.9)
+  return { friction = 0.5, restitution = 0.1 }
+end
+
+fn postsolve(contact)
+  counts.post = counts.post + 1
+  assert(contact.impulses.len() > 0)
+end
+
+fn update(dt: float)
+  ticks = ticks + 1
+  love.physics.world_step(solid, dt)
+  love.physics.world_step(ghost, dt)
+  if ticks == 140 then love.physics.body_set_position(ball, vec2(240, 80)) end
+end
+
+fn draw()
+  love.graphics.set_color(vec4(0.3, 0.8, 0.7, 1))
+  love.graphics.rectangle("fill", vec2(65, 525), vec2(350, 30))
+  love.graphics.circle("fill", love.physics.body_position(ball), 25)
+  love.graphics.set_color(vec4(0.9, 0.5, 0.3, 1))
+  love.graphics.rectangle("line", vec2(545, 525), vec2(350, 30))
+  let position = love.physics.body_position(falling)
+  love.graphics.circle("fill", vec2(position.x, min(position.y, 610)), 25)
+  love.graphics.print("Solid collision / pre-solve disables ghost collision", vec2(30, 30))
+  love.graphics.print(`Begin {counts.begin} / End {counts.finish} / Pre {counts.pre} / Post {counts.post}`, vec2(30, 80))
+end
+
+fn verify()
+  assert(ticks == 180)
+  assert(counts.begin >= 2 and counts.finish >= 1 and counts.pre > 0 and counts.post > 0)
+  assert(love.physics.body_position(ball).y < 525)
+  assert(love.physics.body_position(falling).y > 600)
+  print("PASS: begin/end/pre/post solve and contact response")
+end

@@ -1,0 +1,133 @@
+import love
+import bytes
+import fs
+
+record Instance { offset: vec2, tint: vec4 }
+let mesh=nil
+let instances=nil
+let shader=nil
+let canvas=nil
+let vertices=nil
+let transfer=nil
+let ticks=0
+let rows: {Instance}=[]
+let instance_count=1600
+let banner=""
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> nil
+  end
+end
+
+-- All boundary checks share this demo's window, avoiding subprocesses per case.
+fn check_buffers()
+  must_fail("empty format",fn() love.graphics.new_buffer([],1) end)
+  must_fail("duplicate format",fn() love.graphics.new_buffer([{name="x",format="float"},{name="x",format="float"}],1) end)
+  must_fail("unknown format",fn() love.graphics.new_buffer([{name="x",format="wat"}],1) end)
+  must_fail("allocation bound",fn() love.graphics.new_buffer([{name="x",format="floatmat4x4"}],1048576,[]) end)
+  let colors=love.graphics.new_buffer([{name="color",format="unorm8vec4"}],2,[])
+  assert(love.graphics.buffer_info(colors).stride==4)
+  love.graphics.buffer_set_data(colors,[vec4(1,0,0,1),vec4(0,1,0,1)])
+  let before=love.graphics.buffer_read(colors)
+  assert(love.data.encode("hex",before)=="ff0000ff00ff00ff")
+  must_fail("atomic batch validation",fn() love.graphics.buffer_set_data(colors,[vec4(0,0,0,0),vec4(2,0,0,0)]) end)
+  assert(love.data.encode("hex",love.graphics.buffer_read(colors))==love.data.encode("hex",before))
+  must_fail("upload bound",fn() love.graphics.buffer_set_data(colors,[vec4(0,0,0,0),vec4(0,0,0,0)],1) end)
+  must_fail("byte bound",fn() love.graphics.buffer_set_bytes(colors,before,1) end)
+  let copy=love.graphics.new_buffer([{name="color",format="unorm8vec4"}],2,[])
+  love.graphics.copy_buffer(colors,copy,0,0,8)
+  assert(love.data.encode("hex",love.graphics.buffer_read(copy))==love.data.encode("hex",before))
+  love.graphics.buffer_clear(copy)
+  assert(love.data.encode("hex",love.graphics.buffer_read(copy))=="0000000000000000")
+  love.graphics.buffer_set_bytes(copy,before,0)
+  assert(love.data.encode("hex",love.graphics.buffer_read(copy))==love.data.encode("hex",before))
+  transfer=love.graphics.buffer_read_async(copy)
+  love.graphics.release(copy)
+  love.graphics.release(colors)
+  must_fail("stale buffer",fn() love.graphics.buffer_info(colors) end)
+  let integers=love.graphics.new_buffer([{name="value",format="uint16"}],2,["index"])
+  love.graphics.buffer_set_data(integers,[1,65535])
+  assert(love.data.encode("hex",love.graphics.buffer_read(integers))=="0100ffff")
+  must_fail("integer range",fn() love.graphics.buffer_set_data(integers,[-1]) end)
+  must_fail("integer fraction",fn() love.graphics.buffer_set_data(integers,[0.5]) end)
+  love.graphics.release(integers)
+end
+
+fn load()
+  check_buffers()
+  match fs.read_text("res:message.txt")
+    Ok(text) -> banner=text
+    Error(reason) -> assert(false,tostring(reason))
+  end
+  love.window.set_title("LÖVE + SCUA / 1600 mesh instances from typed record buffers")
+  vertices=love.graphics.new_buffer([{name="VertexPosition",format="floatvec2"}],3)
+  love.graphics.buffer_set_data(vertices,[vec2(-5,-5),vec2(5,-5),vec2(0,5)])
+  mesh=love.graphics.mesh_from_buffer(vertices,"triangles")
+  love.graphics.release(vertices)
+  instances=love.graphics.new_buffer([{name="offset",format="floatvec2"},{name="tint",format="unorm8vec4"}],instance_count)
+  let info=love.graphics.buffer_info(instances)
+  assert(info.length==1600 and info.stride==12)
+  assert(info.format[1].offset==8)
+  for i in 0:instance_count do
+    let x=i%40
+    let y=floor(i/40)
+    let tint=vec4(0.2+x/50,0.3+y/60,0.8,1)
+    if i==0 then tint=vec4(1,0.2,0.1,1) end
+    if i==instance_count-1 then tint=vec4(0.1,0.2,1,1) end
+    rows.push({offset=vec2(30+x*23,120+y*12),tint=tint})
+  end
+  love.graphics.buffer_set_data(instances,rows)
+  love.graphics.mesh_attach_attribute(mesh,"InstanceOffset",instances,"offset","perinstance")
+  love.graphics.mesh_attach_attribute(mesh,"InstanceTint",instances,"tint","perinstance")
+  love.graphics.mesh_attribute_enabled(mesh,"InstanceTint",false)
+  love.graphics.mesh_attribute_enabled(mesh,"InstanceTint",true)
+  must_fail("missing member",fn() love.graphics.mesh_attach_attribute(mesh,"Invalid",instances,"missing","perinstance") end)
+  shader=love.graphics.new_shader("#ifdef VERTEX\nattribute vec2 InstanceOffset;\nattribute vec4 InstanceTint;\nvarying vec4 Tint;\nvec4 position(mat4 transform_projection, vec4 vertex_position) { Tint=InstanceTint; return transform_projection*(vertex_position+vec4(InstanceOffset,0.0,0.0)); }\n#endif\n#ifdef PIXEL\nvarying vec4 Tint;\nvec4 effect(vec4 color, Image tex, vec2 uv, vec2 px) { return color*Tint; }\n#endif")
+  canvas=love.graphics.new_canvas(960,640)
+end
+
+fn update(dt: float)
+  ticks=ticks+1
+  -- One batch upload for all instances; SCUA records and vectors express layout.
+  love.graphics.buffer_set_data(instances,rows)
+end
+
+fn draw()
+  love.graphics.set_canvas(canvas)
+  love.graphics.clear(vec4(0,0,0,0))
+  love.graphics.set_shader(shader)
+  must_fail("instance capacity",fn() love.graphics.draw_instanced(mesh,instance_count+1,vec2(0,0)) end)
+  love.graphics.draw_instanced(mesh,instance_count,vec2(0,0))
+  love.graphics.set_shader(nil)
+  love.graphics.set_canvas(nil)
+  love.graphics.draw(canvas,vec2(0,0))
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.print(banner,vec2(25,25))
+  love.graphics.print("Each instance supplies its position and packed color. Escape quits.",vec2(25,65))
+end
+
+fn keypressed(key: string)
+  if key=="Escape" then love.event.quit() end
+end
+
+fn verify()
+  assert(ticks==3)
+  love.graphics.readback_wait(transfer)
+  assert(love.data.encode("hex",love.graphics.readback_bytes(transfer))=="ff0000ff00ff00ff")
+  love.graphics.release(transfer)
+  let image=love.graphics.texture_readback(canvas)
+  let first=love.image.get_pixel(image,30,120)
+  let last=love.image.get_pixel(image,927,588)
+  assert(first.x>0.9 and first.z<0.2)
+  assert(last.z>0.9 and last.x<0.2)
+  assert(love.image.get_pixel(image,0,0).w==0)
+  love.graphics.release(image)
+  love.graphics.release(instances)
+  -- Mesh retains both closed vertex and instance buffers until detached/destroyed.
+  assert(love.graphics.mesh_count(mesh)==3)
+  assert(love.graphics.mesh_detach_attribute(mesh,"InstanceTint"))
+  assert(love.graphics.mesh_detach_attribute(mesh,"InstanceOffset"))
+  print("PASS: GPU uploads, atomic validation, copies, async readback, instanced pixels and retained buffers")
+end

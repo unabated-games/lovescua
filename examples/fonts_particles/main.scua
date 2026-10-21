@@ -1,0 +1,221 @@
+import love
+import fs
+
+record Segment { text: string, color: vec4 }
+record Typography { name: string, font: any }
+let fonts: {Typography}=[]
+let primary=nil
+let bitmap=nil
+let cached=nil
+let particles=nil
+let held_texture=nil
+let retained_quad=nil
+let glyph_texture=nil
+let canvas=nil
+let ticks=0
+
+fn read(name: string)
+  match fs.read(`res:{name}`)
+    Ok(data) -> return data
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+
+fn must_fail(label: string, operation)
+  match pcall(operation)
+    Ok(_) -> assert(false,`{label} should fail`)
+    Error(_) -> nil
+  end
+end
+
+fn image_strip()
+  let image=love.image.new_data(5,8)
+  for y in 0:8 do
+    for x in 0:5 do love.image.set_pixel(image,x,y,if x==0 or x==4 then vec4(1,0,1,1) else vec4(1,1,1,1) end) end
+  end
+  return image
+end
+
+fn setup_fonts()
+  let raster=love.font.new_rasterizer(24,read("font.ttf"),{hinting="light",dpi_scale=1})
+  let metrics=love.font.rasterizer_info(raster)
+  assert(metrics.height>0 and metrics.glyphs>0 and metrics.type=="truetype")
+  assert(love.font.rasterizer_has_glyphs(raster,"AVSCUA"))
+  assert(love.font.rasterizer_glyph_info(raster,65).spacing>0)
+  love.font.rasterizer_kerning(raster,65,86)
+  let glyph=love.font.new_glyph(raster,"A")
+  let info=love.font.glyph_info(glyph)
+  assert(info.codepoint==65 and info.character=="A" and info.width>0 and info.size>0)
+  assert(love.font.glyph_bytes(glyph).len()==info.size)
+  let alias=love.font.glyph_clone(glyph)
+  love.graphics.release(glyph)
+  assert(love.font.glyph_info(alias).codepoint==65)
+  let glyph_pixels=love.font.glyph_image(alias)
+  glyph_texture=love.graphics.new_image_from_data(glyph_pixels)
+  love.graphics.release(glyph_pixels)
+  love.graphics.release(alias)
+  let space=love.font.new_glyph_codepoint(raster,32)
+  assert(love.font.glyph_image(space)==nil)
+  love.graphics.release(space)
+  must_fail("Unicode surrogate",fn() love.font.new_glyph_codepoint(raster,55296) end)
+  let native=love.graphics.new_font_from_rasterizer(raster)
+  love.graphics.release(raster)
+  love.graphics.font_set_filter(native,"nearest","nearest",1)
+  assert(love.graphics.font_filter(native).min=="nearest")
+  fonts.push({name="TrueType / hinting / Unicode glyph data",font=native})
+  let built_in=love.font.new_rasterizer(18,nil,{hinting="none",dpi_scale=1})
+  let default_font=love.graphics.new_font_from_rasterizer(built_in)
+  love.graphics.release(built_in)
+  fonts.push({name="Built-in rasterizer",font=default_font})
+  let image=image_strip()
+  let a=love.font.new_image_rasterizer(image,"A",1)
+  let b=love.font.new_image_rasterizer(image,"B",1)
+  primary=love.graphics.new_font_from_rasterizer(a)
+  let fallback=love.graphics.new_font_from_rasterizer(b)
+  love.graphics.release(a)
+  love.graphics.release(b)
+  assert(not love.graphics.font_has_glyphs(primary,"B"))
+  love.graphics.font_set_fallbacks(primary,[fallback])
+  love.graphics.release(fallback)
+  assert(love.graphics.font_has_glyphs(primary,"AB"))
+  must_fail("self fallback",fn() love.graphics.font_set_fallbacks(primary,[primary]) end)
+  must_fail("mismatched font type",fn() love.graphics.font_set_fallbacks(primary,[native]) end)
+  let lines=love.graphics.font_wrap_info(native,[{text="SCUA typography and wrapping",color=vec4(1,1,1,1)}],100)
+  assert(lines.len()>1 and lines[0].width<=100)
+  let page=love.image.new_data(4,8)
+  for y in 0:8 do for x in 0:4 do love.image.set_pixel(page,x,y,vec4(1,1,1,1)) end end
+  let definition=""
+  match fs.read_text("res:font.fnt")
+    Ok(data) -> definition=data
+    Error(reason) -> assert(false,tostring(reason))
+  end
+  let bm=love.font.new_bmfont_rasterizer(definition,[page])
+  bitmap=love.graphics.new_font_from_rasterizer(bm)
+  assert(love.graphics.font_has_glyphs(bitmap,"C"))
+  love.graphics.release(bm)
+  must_fail("missing explicit page",fn() love.font.new_bmfont_rasterizer("common lineHeight=8 base=8\npage id=1 file=\"/etc/passwd\"\nchar id=65 x=0 y=0 width=4 height=8 page=1",[page]) end)
+  love.graphics.release(page)
+  love.graphics.release(image)
+  cached=love.graphics.new_text(native,"")
+  love.graphics.text_set_colored(cached,[{text="Colored cached text",color=vec4(1,0.6,0.2,1)}])
+  let entry=love.graphics.text_add_colored(cached,[{text=" / retained font",color=vec4(0.3,0.9,0.7,1)}],vec2(240,0))
+  assert(love.graphics.text_entry_dimensions(cached,entry).x>0)
+  love.graphics.text_add_wrapped(cached,[{text="Wrapped and transformed colored text",color=vec4(0.4,0.7,1,1)}],280,"center",vec2(0,45))
+  love.graphics.text_set_font(cached,native)
+  let retained=love.graphics.text_font(cached)
+  assert(love.graphics.font_metrics(retained).height>0)
+  love.graphics.release(retained)
+end
+
+fn setup_particles()
+  let pixels=love.image.new_data(8,8)
+  for y in 0:8 do for x in 0:8 do love.image.set_pixel(pixels,x,y,vec4(1,1,1,1)) end end
+  let texture=love.graphics.new_image_from_data(pixels)
+  love.graphics.release(pixels)
+  particles=love.graphics.new_particles(texture,32)
+  let quad=love.graphics.new_quad(texture,vec2(0,0),vec2(4,4))
+  love.graphics.particles_set_quads(particles,[quad])
+  love.graphics.release(quad)
+  held_texture=texture
+  let config={capacity=48,rate=12,emitter_lifetime=3,lifetime=vec2(2,4),position=vec2(12,16),offset=vec2(2,2),area={distribution="borderrectangle",size=vec2(10,20),angle=0.2,relative=true},direction=0.5,spread=0.3,speed=vec2(5,10),rotation=vec2(-0.1,0.1),spin=vec2(2,-2),damping=vec2(0.1,0.2),radial_acceleration=vec2(-2,2),tangential_acceleration=vec2(0,1),acceleration_min=vec2(-1,2),acceleration_max=vec2(1,4),sizes=[1,2,0.5],size_variation=0.3,spin_variation=0.4,colors=[vec4(1,0,0,1),vec4(0,1,0,1),vec4(0,0,1,0)],relative_rotation=true,insert_mode="bottom"}
+  love.graphics.particles_configure(particles,config)
+  let state=love.graphics.particles_state(particles)
+  assert(state.capacity==48 and state.rate==12 and state.position==vec2(12,16))
+  assert(state.lifetime==vec2(2,4) and state.spin==vec2(2,-2))
+  assert(state.sizes.len()==3 and state.colors.len()==3 and state.quads==1)
+  assert(state.area.distribution=="borderrectangle" and state.area.relative and state.relative_rotation)
+  let clone=love.graphics.particles_clone(particles)
+  assert(love.graphics.particles_state(clone).count==0)
+  assert(love.graphics.particles_state(clone).spin==vec2(2,-2))
+  love.graphics.release(clone)
+  must_fail("checked configuration",fn() love.graphics.particles_configure(particles,{rate=99,sizes=[]}) end)
+  assert(love.graphics.particles_state(particles).rate==12)
+  let old=love.graphics.particles_quads(particles)
+  assert(old.len()==1 and love.graphics.quad_dimensions(old[0])==vec2(4,4))
+  let replacement=love.graphics.particles_texture(particles)
+  let fresh=love.graphics.new_particles(replacement,4)
+  love.graphics.particles_set_quads(fresh,[old[0]])
+  assert(love.graphics.particles_state(fresh).offset==vec2(2,2))
+  love.graphics.particles_set_quads(fresh,[])
+  assert(love.graphics.particles_state(fresh).offset==vec2(4,4))
+  love.graphics.release(fresh)
+  love.graphics.release(replacement)
+  let cyan=love.image.new_data(8,8)
+  for y in 0:8 do for x in 0:8 do love.image.set_pixel(cyan,x,y,vec4(0,1,1,1)) end end
+  let alternate=love.graphics.new_image_from_data(cyan)
+  love.graphics.release(cyan)
+  love.graphics.particles_set_texture(particles,alternate)
+  love.graphics.release(alternate)
+  love.graphics.particles_set_quads(particles,[])
+  retained_quad=old[0]
+  assert(love.graphics.quad_dimensions(retained_quad)==vec2(4,4))
+  love.graphics.particles_configure(particles,{rate=0,emitter_lifetime=-1,lifetime=vec2(10,10),position=vec2(0,0),offset=vec2(4,4),area={distribution="none"},direction=0,spread=0,speed=vec2(0,0),rotation=vec2(0,0),spin=vec2(0,0),damping=vec2(0,0),radial_acceleration=vec2(0,0),tangential_acceleration=vec2(0,0),acceleration_min=vec2(0,0),acceleration_max=vec2(0,0),sizes=[4,4],size_variation=0,spin_variation=0,colors=[vec4(0.2,0.6,1,1)],relative_rotation=false,insert_mode="top"})
+  love.graphics.particles_configure(particles,{emitter_lifetime=1})
+  love.graphics.particles_update(particles,0.01)
+  love.graphics.particles_pause(particles)
+  assert(love.graphics.particles_state(particles).paused)
+  love.graphics.particles_stop(particles)
+  assert(love.graphics.particles_state(particles).stopped)
+  love.graphics.particles_configure(particles,{emitter_lifetime=-1})
+  love.graphics.particles_start(particles)
+  love.graphics.particles_emit(particles,1)
+end
+
+fn load()
+  love.window.set_title("SCUA / native rasterizers, glyphs, image/bitmap fonts, fallbacks and complete particles")
+  setup_fonts()
+  setup_particles()
+  canvas=love.graphics.new_canvas(960,640)
+end
+
+fn update(dt: float)
+  ticks=ticks+1
+  if ticks==2 then love.graphics.release(held_texture) held_texture=nil end
+  love.graphics.particles_update(particles,dt)
+end
+
+fn draw()
+  love.graphics.set_canvas(canvas)
+  love.graphics.clear(vec4(0.025,0.025,0.035,1))
+  love.graphics.set_color(vec4(1,1,1,1))
+  for i,entry in fonts do
+    love.graphics.set_font(entry.font)
+    love.graphics.print(entry.name,vec2(35,35+i*45))
+  end
+  love.graphics.draw(glyph_texture,vec2(720,35),0,vec2(4,4))
+  love.graphics.set_font(primary)
+  let segments: {Segment}=[{text="A",color=vec4(1,0,0,1)},{text="B",color=vec4(0,1,0,1)}]
+  love.graphics.print_colored(segments,vec2(40,170),0,vec2(8,8))
+  love.graphics.printf_colored(segments,20,"left",vec2(200,170),0,vec2(8,8))
+  love.graphics.set_font(bitmap)
+  love.graphics.print_colored([{text="C",color=vec4(0,0,1,1)}],vec2(360,170),0,vec2(8,8))
+  love.graphics.draw_text(cached,vec2(35,300))
+  love.graphics.draw_particles(particles,vec2(600,200))
+  love.graphics.draw_quad(retained_quad,vec2(800,200),0,vec2(4,4))
+  love.graphics.set_canvas(nil)
+  love.graphics.set_font(nil)
+  love.graphics.draw(canvas,vec2(0,0))
+  love.graphics.print("TrueType glyph data / bitmap pages / image fallback glyphs / colored text / particle settings",vec2(30,570))
+end
+
+fn keypressed(key: string) if key=="Escape" then love.event.quit() end end
+
+fn check(image, point: vec2, expected: vec4)
+  let c=love.image.get_pixel(image,point.x,point.y)
+  assert(abs(c.x-expected.x)<0.06 and abs(c.y-expected.y)<0.06 and abs(c.z-expected.z)<0.06,`pixel {point}: got {c}, expected {expected}`)
+end
+
+fn verify()
+  assert(ticks==3)
+  assert(love.graphics.particles_count(particles)==1)
+  let image=love.graphics.texture_read(canvas)
+  check(image,vec2(48,180),vec4(1,0,0,1))
+  check(image,vec2(80,180),vec4(0,1,0,1))
+  check(image,vec2(208,180),vec4(1,0,0,1))
+  check(image,vec2(368,180),vec4(0,0,1,1))
+  check(image,vec2(600,200),vec4(0,0.6,1,1))
+  check(image,vec2(805,205),vec4(1,1,1,1))
+  love.graphics.release(retained_quad)
+  love.graphics.release(image)
+  print("PASS: TrueType/image/BMFont rasterizers, Unicode glyph pixels/metrics, retained fallbacks, colored text and complete particle configuration/aliases")
+end

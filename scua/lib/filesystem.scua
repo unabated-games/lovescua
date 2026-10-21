@@ -1,0 +1,81 @@
+-- Use SCUA's resource packs and explicit user-folder capability for game files.
+-- Results remain Results, so missing/corrupt saves can be handled with match or ?.
+import fs
+import str
+
+fn resource(path: string) -> string
+  if str.starts_with(path, "res:") or str.starts_with(path, "user:") then return path end
+  return "res:" .. path
+end
+
+fn save(path: string) -> string
+  assert(not str.starts_with(path, "res:"), "resources are read-only")
+  if str.starts_with(path, "user:") then return path end
+  return "user:" .. path
+end
+
+fn read(path: string)
+  return fs.read(resource(path))
+end
+
+fn read_text(path: string)
+  return fs.read_text(resource(path))
+end
+
+fn write(path: string, content)
+  return fs.write(save(path), content)
+end
+
+fn create_directory(path: string)
+  return fs.mkdir(save(path))
+end
+
+fn remove_file(path: string)
+  return fs.remove(save(path))
+end
+
+fn rename(source: string, destination: string)
+  return fs.rename(save(source), save(destination))
+end
+
+fn exists(path: string) -> bool
+  return fs.exists(resource(path))
+end
+
+fn get_info(path: string)
+  return fs.stat(resource(path))
+end
+
+fn get_directory_items(path: string)
+  return fs.list(resource(path))
+end
+
+fn lines(path: string)
+  match fs.read_text(resource(path))
+    Ok(text) -> return Ok(str.lines(text))
+    Error(error) -> return Error(error)
+  end
+end
+
+-- Write beside the destination then rename, so an interrupted save keeps the old file.
+fn write_atomic(path: string, content)
+  let target = save(path)
+  match fs.write(target .. ".tmp", content, { sync = true })
+    Ok(_) -> return fs.rename(target .. ".tmp", target)
+    Error(error) -> return Error(error)
+  end
+end
+
+return {
+  read = read,
+  read_text = read_text,
+  write = write,
+  write_atomic = write_atomic,
+  create_directory = create_directory,
+  remove_file = remove_file,
+  rename = rename,
+  exists = exists,
+  get_info = get_info,
+  get_directory_items = get_directory_items,
+  lines = lines,
+}

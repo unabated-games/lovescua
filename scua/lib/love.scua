@@ -1,0 +1,36 @@
+-- Familiar LÖVE namespaces backed directly by C++ natives in the SCUA host.
+import love_window
+import love_graphics
+import love_keyboard
+import love_mouse
+import love_event
+import love_timer
+import love_system
+import love_font
+import love_image
+import love_math
+import love_data
+import love_physics
+import love_joystick
+import love_touch
+import love_sensor
+import love_video
+
+return {
+  window = love_window,
+  graphics = love_graphics,
+  keyboard = love_keyboard,
+  mouse = love_mouse,
+  event = love_event,
+  timer = love_timer,
+  system = love_system,
+  image = love_image,
+  font = love_font,
+  math = love_math,
+  data = love_data,
+  physics = love_physics,
+  joystick = love_joystick,
+  touch = love_touch,
+  video = love_video,
+  sensor = love_sensor,
+}
