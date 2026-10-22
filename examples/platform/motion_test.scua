@@ -1,0 +1,125 @@
+import motion
+import str
+let computer_accel=false
+let computer_gyro=false
+let computer_accel_on=false
+let computer_gyro_on=false
+let enable_calls=0
+let closes=0
+let fail_discovery=false
+let pads=[]
+fn computer_has(kind: string)
+  if kind=="accelerometer" then return computer_accel end
+  return computer_gyro
+end
+fn computer_enabled(kind: string)
+  if kind=="accelerometer" then return computer_accel_on end
+  return computer_gyro_on
+end
+fn computer_enable(kind: string,enabled: bool)
+  assert(enabled)
+  enable_calls=enable_calls+1
+  if kind=="accelerometer" then computer_accel_on=true else computer_gyro_on=true end
+end
+fn count_pads()
+  assert(not fail_discovery,"deliberate discovery fault")
+  return pads.len()
+end
+fn get_pad(index: int) return pads[index] end
+fn pad_info(pad)
+  assert(not pad.fail_info,"deliberate metadata fault")
+  return {name=pad.name,instance_id=pad.id}
+end
+fn pad_connected(pad) return pad.connected end
+fn pad_has(pad,kind: string)
+  if kind=="accelerometer" then return pad.accel end
+  return pad.gyro
+end
+fn pad_enabled(pad,kind: string)
+  if kind=="accelerometer" then return pad.accel_on end
+  return pad.gyro_on
+end
+fn pad_enable(pad,kind: string,enabled: bool)
+  assert(enabled)
+  enable_calls=enable_calls+1
+  if kind=="accelerometer" then
+    assert(not pad.fail_accel,"deliberate enable fault")
+    pad.accel_on=true
+  else pad.gyro_on=true end
+end
+fn close_pad(pad) closes=closes+1 end
+fn new_pad(id: int,name: string,accel: bool,gyro: bool)
+  return {id=id,name=name,accel=accel,gyro=gyro,accel_on=false,gyro_on=false,
+    fail_accel=false,fail_info=false,connected=true}
+end
+let backend={
+  sensor={has=computer_has,is_enabled=computer_enabled,set_enabled=computer_enable},
+  joystick={count=count_pads,get=get_pad,info=pad_info,is_connected=pad_connected,
+    has_sensor=pad_has,sensor_enabled=pad_enabled,set_sensor_enabled=pad_enable},
+  close=close_pad
+}
+let monitor=motion.new_monitor(backend)
+motion.refresh(monitor)
+assert(monitor.readings.len()==0 and enable_calls==0)
+assert(motion.lines(monitor).contains("No compatible motion sensors detected."))
+assert(motion.lines(monitor).contains("macOS controller missing? Try SDL_JOYSTICK_MFI=0 before starting."))
+
+pads=[new_pad(42,"Controller without motion",false,false)]
+motion.refresh(monitor)
+assert(monitor.controllers.len()==1 and monitor.readings.len()==0 and closes==1)
+assert(motion.lines(monitor).contains("Controller without motion: accelerometer unavailable, gyroscope unavailable"))
+assert(motion.lines(monitor).len()==3)
+
+computer_accel=true
+motion.refresh(monitor)
+assert(enable_calls==1 and monitor.readings.len()==1)
+assert(motion.lines(monitor).contains("Computer / accelerometer: enabled; waiting for motion data"))
+motion.receive(monitor,motion.Source.Computer,99,"accelerometer",vec3(0,9.81,0))
+assert(monitor.readings[0].received and monitor.readings[0].value==vec3(0,9.81,0))
+motion.receive(monitor,motion.Source.Controller,99,"accelerometer",vec3(1,1,1))
+assert(monitor.readings[0].value==vec3(0,9.81,0))
+assert(str.contains(motion.lines(monitor)[2],"m/s²"))
+
+computer_accel=false
+pads=[new_pad(42,"Motion pad",true,true),new_pad(43,"Gyro pad",false,true)]
+motion.refresh(monitor)
+assert(monitor.readings.len()==3 and enable_calls==4)
+assert(monitor.controllers[0].accelerometer and monitor.controllers[0].gyroscope)
+assert(not monitor.controllers[1].accelerometer and monitor.controllers[1].gyroscope)
+motion.receive(monitor,motion.Source.Controller,43,"gyroscope",vec3(1,2,3))
+assert(monitor.readings[2].received and monitor.readings[2].value==vec3(1,2,3))
+assert(not monitor.readings[0].received and not monitor.readings[1].received)
+motion.receive(monitor,motion.Source.Controller,999,"gyroscope",vec3(9,9,9))
+assert(monitor.readings[2].value==vec3(1,2,3))
+assert(str.contains(motion.lines(monitor)[5],"rad/s"))
+let before=enable_calls
+motion.refresh(monitor)
+assert(enable_calls==before,"reload/rescan must not toggle sensors already enabled")
+
+-- Disconnect/hotplug refresh drops stale readings and adds new devices.
+pads=[pads[1]]
+motion.refresh(monitor)
+assert(monitor.controllers.len()==1 and monitor.readings.len()==1 and monitor.readings[0].id==43)
+motion.receive(monitor,motion.Source.Controller,42,"gyroscope",vec3(9,9,9))
+assert(not monitor.readings[0].received)
+pads.push(new_pad(44,"New pad",true,false))
+motion.refresh(monitor)
+assert(monitor.controllers.len()==2 and monitor.readings.len()==2)
+
+-- One sensor failure must not prevent the other sensor from working.
+pads=[new_pad(45,"Partly failing pad",true,true)]
+pads[0].fail_accel=true
+motion.refresh(monitor)
+assert(monitor.readings.len()==2 and not monitor.readings[0].enabled and monitor.readings[1].enabled)
+assert(monitor.readings[0].error!="")
+motion.receive(monitor,motion.Source.Controller,45,"gyroscope",vec3(4,5,6))
+assert(monitor.readings[1].received)
+
+let before_close=closes
+pads[0].fail_info=true
+motion.refresh(monitor)
+assert(monitor.errors.len()==1 and closes==before_close+1,"failed discovery must release the alias")
+fail_discovery=true
+motion.refresh(monitor)
+assert(monitor.errors.len()==1 and monitor.readings.len()==0)
+print("PASS: sensor discovery, controller-only status, enabling, readings, hotplug, reload and isolated errors")

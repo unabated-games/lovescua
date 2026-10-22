@@ -1,10 +1,12 @@
 import love
 import handles
+import motion
 let ticks=0
 let request=nil
 let request_kind=""
 let message="O: open file   S: save PNG   M: message box   C: copy status   U: project URL"
-let sensor="No sensor event received"
+let sensors=nil
+let sensors_dirty=true
 let image=nil
 let reloads=0
 fn fails(operation)
@@ -75,6 +77,13 @@ fn snapshot() -> string return tostring(ticks) end
 fn restore(encoded: string) ticks=tonumber(encoded) end
 fn reloaded() reloads=reloads+1 end
 fn update(dt: float)
+  if sensors==nil then
+    sensors=motion.new_monitor({sensor=love.sensor,joystick=love.joystick,close=love.object.close})
+  end
+  if sensors_dirty then
+    motion.refresh(sensors)
+    sensors_dirty=false
+  end
   ticks=ticks+1
   if ticks==1 then love.event.reload() end
   if request!=nil then
@@ -117,14 +126,25 @@ fn keypressed(key: string)
   if key=="R" then love.event.reload() end
   if key=="Escape" then love.event.quit() end
 end
-fn sensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`{kind}: {value} at {time}s` end
-fn gamepadsensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`Gamepad {id} {kind}: {value}` end
+fn sensorupdated(id: int,kind: string,value: vec3,time: float)
+  if sensors!=nil then motion.receive(sensors,motion.Source.Computer,id,kind,value) end
+end
+fn gamepadsensorupdated(id: int,kind: string,value: vec3,time: float)
+  if sensors!=nil then motion.receive(sensors,motion.Source.Controller,id,kind,value) end
+end
+-- Defer scanning until update so SDL has finished adding/removing the gamepad.
+fn joystickadded(id: int) sensors_dirty=true end
+fn joystickremoved(id: int) sensors_dirty=true end
 fn draw()
   love.graphics.set_color(vec4(1,1,1,1))
   love.graphics.print("Desktop platform API / R reloads this game",vec2(30,30))
   love.graphics.print(message,vec2(30,80))
-  love.graphics.print(sensor,vec2(30,130))
-  love.graphics.draw(image.raw,vec2(30,200),0,vec2(24,24))
+  if sensors!=nil then
+    let rows=motion.lines(sensors)
+    for i in 0:min(rows.len(),7) do love.graphics.print(rows[i],vec2(30,125+i*23)) end
+    if rows.len()>7 then love.graphics.print(`... {rows.len()-7} more sensor status lines`,vec2(30,286)) end
+  end
+  love.graphics.draw(image.raw,vec2(30,330),0,vec2(24,24))
   love.graphics.flush()
   let projection=love.math.new_transform()
   love.graphics.set_projection(projection)

@@ -87,3 +87,37 @@ are corrected. `scua_platform_keys` extracts the actual handler and invokes it
 with the host's single SDL scancode-name argument. Stubbed OS actions verify all
 shortcuts without opening a window, chooser or browser or changing the clipboard.
 This adds keyboard-dispatch coverage; real chooser interaction remains manual.
+
+
+## Sensor setup and macOS controller follow-up
+
+The platform demo now detects and enables available computer/gamepad accelerometers
+and gyroscopes from update(), after reload staging. It rescans after controller
+addition/removal, lists connected names/capabilities separately, and displays waiting,
+reading and enable-error states. It closes each temporary joystick alias after scanning.
+A pure SCUA monitor module with an injected backend keeps hardware-free cases executable
+under the actual embedded SDK: no devices, a controller without sensors, computer and
+multiple controller sensors, enablement, per-device callback routing, rescan/reload,
+hotplug, setup/discovery errors and alias cleanup. The native SDL virtual gamepad
+also advertises both sensor types and checks actual SCUA/native enable and data APIs.
+That native fixture imports the same monitor module, verifies its sensor enablement,
+callback-value routing and managed alias cleanup. It passes in audio-enabled and
+audio-disabled builds, and with MFI disabled alongside the connected controller.
+These are simulated readings, not a physical motion test.
+
+Read-only controller checks used the SDL dylib linked by the current build,
+`/opt/homebrew/opt/sdl3/lib/libSDL3.0.dylib`, reporting version 3.4.18. The bundled
+3.2.28 source is the fallback; the build prefers an installed SDL. The checks opened
+no window and did not enable physical sensors:
+
+| Backend selection | SDL observation |
+| --- | --- |
+| Default | No controllers enumerated |
+| `SDL_JOYSTICK_MFI=0` | One 8BitDo Ultimate 2C Wireless gamepad |
+| Detected gamepad accelerometer / gyroscope | Both advertised as unavailable |
+
+macOS HID enumeration also listed that controller. The environment hint must be
+set before SDL initializes; the demo shows this suggestion when no controllers or
+motion sensors are detected. It does not force the backend globally. Controller
+detection and motion support are separate results. No physical motion event was
+available to verify. No graphical tests were run for this follow-up.

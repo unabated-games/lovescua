@@ -1,0 +1,130 @@
+-- Sensor setup runs from update(), outside reload staging. The backend argument
+-- keeps detection and presentation testable without physical devices or windows.
+enum Source { Computer, Controller }
+record Reading {
+  source: Source,
+  id: int,
+  kind: string,
+  label: string,
+  enabled: bool = false,
+  received: bool = false,
+  value: vec3 = vec3(0,0,0),
+  error: string = "",
+}
+record Monitor { backend: any, readings: any, controllers: any, errors: any }
+
+fn new_monitor(backend) -> Monitor
+  return {backend=backend,readings=[],controllers=[],errors=[]}
+end
+
+fn probe(monitor: Monitor, source: Source, id: int, kind: string, label: string, available, enable)
+  let reading: Reading={source=source,id=id,kind=kind,label=label}
+  match pcall(fn()
+      if not available() then return false end
+      enable()
+      return true
+    end)
+    Ok(supported) -> do
+      if supported then
+        reading.enabled=true
+        monitor.readings.push(reading)
+      end
+      return supported
+    end
+    Error(reason) -> do
+      reading.error=tostring(reason)
+      monitor.readings.push(reading)
+      return false
+    end
+  end
+end
+
+fn refresh(monitor: Monitor)
+  monitor.readings=[]
+  monitor.controllers=[]
+  monitor.errors=[]
+  let api=monitor.backend
+  for kind in ["accelerometer","gyroscope"] do
+    probe(monitor,Source.Computer,0,kind,"Computer",
+      fn() return api.sensor.has(kind) end,
+      fn()
+        if not api.sensor.is_enabled(kind) then api.sensor.set_enabled(kind,true) end
+        assert(api.sensor.is_enabled(kind),"sensor did not enable")
+      end)
+  end
+  match pcall(fn() return api.joystick.count() end)
+    Error(reason) -> monitor.errors.push(`Controller discovery: {tostring(reason)}`)
+    Ok(count) -> do
+      for index in 0:count do
+        let controller=nil
+        match pcall(fn()
+            controller=api.joystick.get(index)
+            if controller==nil or not api.joystick.is_connected(controller) then return end
+            let info=api.joystick.info(controller)
+            let capabilities={name=info.name,id=info.instance_id,accelerometer=false,gyroscope=false}
+            monitor.controllers.push(capabilities)
+            for kind in ["accelerometer","gyroscope"] do
+              let enabled=probe(monitor,Source.Controller,info.instance_id,kind,info.name,
+                fn() return api.joystick.has_sensor(controller,kind) end,
+                fn()
+                  if not api.joystick.sensor_enabled(controller,kind) then
+                    api.joystick.set_sensor_enabled(controller,kind,true)
+                  end
+                  assert(api.joystick.sensor_enabled(controller,kind),"controller sensor did not enable")
+                end)
+              if kind=="accelerometer" then capabilities.accelerometer=enabled
+              else capabilities.gyroscope=enabled end
+            end
+          end)
+          Ok(_) -> nil
+          Error(reason) -> monitor.errors.push(`Controller discovery: {tostring(reason)}`)
+        end
+        -- Each scan gets a temporary managed alias; the engine retains the device.
+        if controller!=nil then api.close(controller) end
+      end
+    end
+  end
+end
+
+fn receive(monitor: Monitor, source: Source, id: int, kind: string, value: vec3)
+  for reading in monitor.readings do
+    if reading.enabled and reading.source==source and reading.kind==kind and
+    (source==Source.Computer or reading.id==id) then
+      reading.value=value
+      reading.received=true
+      reading.error=""
+    end
+  end
+end
+
+fn lines(monitor: Monitor)
+  let output=[]
+  let enabled=0
+  for reading in monitor.readings do
+    if reading.enabled then enabled=enabled+1 end
+  end
+  output.push(`Controllers detected: {monitor.controllers.len()} / motion sensors enabled: {enabled}`)
+  for controller in monitor.controllers do
+    let accel=if controller.accelerometer then "enabled" else "unavailable" end
+    let gyro=if controller.gyroscope then "enabled" else "unavailable" end
+    output.push(`{controller.name}: accelerometer {accel}, gyroscope {gyro}`)
+  end
+  if enabled==0 and monitor.readings.len()==0 and monitor.errors.len()==0 then
+    output.push("No compatible motion sensors detected.")
+    if monitor.controllers.len()==0 then
+      output.push("macOS controller missing? Try SDL_JOYSTICK_MFI=0 before starting.")
+    end
+  end
+  for reading in monitor.readings do
+    let prefix=`{reading.label} / {reading.kind}`
+    if reading.error!="" then output.push(`{prefix}: could not enable: {reading.error}`)
+    elseif reading.received then
+      let unit=if reading.kind=="accelerometer" then "m/s²" else "rad/s" end
+      output.push(`{prefix}: {reading.value} {unit}`)
+    else output.push(`{prefix}: enabled; waiting for motion data`) end
+  end
+  for error in monitor.errors do output.push(error) end
+  return output
+end
+
+return {new_monitor=new_monitor,refresh=refresh,receive=receive,lines=lines}

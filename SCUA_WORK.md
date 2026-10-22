@@ -113,3 +113,23 @@ The handler now follows the existing callback contract, uses O/S/M/C/U/R and
 supports Escape to quit. A no-window regression executes the example's actual
 handler with one argument and stubs OS actions, checking every shortcut. The prior
 `--no-input` graphical checks did not exercise this callback.
+
+
+## Sensor demo follow-up
+
+Fixed the missing sensor setup in examples/platform. A SCUA monitor detects/enables
+available accelerometers/gyroscopes, reports controller names separately from motion
+capabilities, routes readings by controller instance ID, and rescans on hotplug.
+First-update initialization avoids reload staging, already enabled sensors stay on,
+and each scan closes temporary controller aliases. Errors remain visible without
+terminating the demo. A window-free embedded SCUA regression covers unavailable,
+controller-only, enabled, reading, hotplug/reload and failure paths. The native virtual
+controller test now covers real sensor enable/data calls through the bindings and
+runs the same monitor module against them, checking alias cleanup. Focused tests
+pass in both builds, including a native run with MFI disabled. No windows opened.
+
+Actual macOS check: this build links installed SDL 3.4.18; default settings enumerated
+no controller, while SDL_JOYSTICK_MFI=0 detected an 8BitDo Ultimate 2C Wireless.
+It advertised neither motion sensor. Backend selection remains an environment choice;
+the example documents/shows the hint. Physical gyro/accelerometer readings remain
+unverified; no graphics windows were opened for this follow-up.

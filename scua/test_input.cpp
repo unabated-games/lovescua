@@ -7,7 +7,7 @@
 #include <iostream>
 #include <memory>
 
-int main()
+int main(int argc, char **argv)
 {
     try
     {
@@ -29,6 +29,17 @@ int main()
         desc.axis_mask = (1u << 6) - 1;
         desc.button_mask = (1u << 16) - 1;
         desc.name = "SCUA virtual gamepad";
+        bool sensorsEnabled = false;
+        SDL_VirtualJoystickSensorDesc sensorDescriptions[] = {{SDL_SENSOR_ACCEL, 60.0f},
+                                                              {SDL_SENSOR_GYRO, 60.0f}};
+        desc.nsensors = 2;
+        desc.sensors = sensorDescriptions;
+        desc.userdata = &sensorsEnabled;
+        desc.SetSensorsEnabled = [](void *context, bool enabled)
+        {
+            *static_cast<bool *>(context) = enabled;
+            return true;
+        };
         auto id = SDL_AttachVirtualJoystick(&desc);
         if (!id)
             throw std::runtime_error(SDL_GetError());
@@ -101,9 +112,14 @@ int main()
         if (scua_userdata_configure(p, &limits) != SCUA_OK)
             throw std::runtime_error("userdata configuration failed");
         lovescua::registerInput(p, state);
+        lovescua::registerResources(p, state);
+        if (argc != 2 || scua_add_module_path(p, argv[1]) != SCUA_OK)
+            throw std::runtime_error("expected platform example module directory");
         scua_register_const_int(p, nullptr, "DEVICE_ID", id);
         const char *source = R"SCUA(
 import love_joystick as joystick
+import love_object as object
+import motion
 let found=nil
 for i in 0:joystick.count() do
   let j=joystick.get(i)
@@ -123,18 +139,46 @@ assert(joystick.is_down(found,0))
 assert(joystick.hat(found,0)=="u")
 assert(joystick.gamepad_axis(found,"leftx")>0.49)
 assert(joystick.gamepad_down(found,"a"))
-assert(not joystick.has_sensor(found,"accelerometer"))
+assert(joystick.has_sensor(found,"accelerometer"))
+assert(joystick.has_sensor(found,"gyroscope"))
 assert(not joystick.sensor_enabled(found,"accelerometer"))
-match pcall(fn() joystick.set_sensor_enabled(found,"accelerometer",true) end)
-  Ok(_) -> assert(false)
-  Error(_) -> assert(true)
+joystick.set_sensor_enabled(found,"accelerometer",true)
+joystick.set_sensor_enabled(found,"gyroscope",true)
+assert(joystick.sensor_enabled(found,"accelerometer"))
+assert(joystick.sensor_enabled(found,"gyroscope"))
+assert(joystick.sensor_data(found,"accelerometer")==vec3(0,0,0))
+assert(joystick.sensor_data(found,"gyroscope")==vec3(0,0,0))
+joystick.set_sensor_enabled(found,"accelerometer",false)
+joystick.set_sensor_enabled(found,"gyroscope",false)
+let monitor=motion.new_monitor({sensor={has=fn(kind) return false end},joystick=joystick,close=object.close})
+motion.refresh(monitor)
+assert(joystick.sensor_enabled(found,"accelerometer"))
+assert(joystick.sensor_enabled(found,"gyroscope"))
+let matched=0
+for reading in monitor.readings do
+  if reading.id==DEVICE_ID then
+    assert(reading.enabled)
+    matched=matched+1
+  end
 end
+assert(matched==2,"monitor must enable both native gamepad sensors")
+motion.receive(monitor,motion.Source.Controller,DEVICE_ID,"gyroscope",vec3(1,2,3))
+let received=false
+for reading in monitor.readings do
+  if reading.id==DEVICE_ID and reading.kind=="gyroscope" then
+    assert(reading.received and reading.value==vec3(1,2,3))
+    received=true
+  end
+end
+assert(received)
 fn disconnected() assert(not joystick.is_connected(found)) end
 )SCUA";
         char error[4096]{};
         if (scua_load_script(p, source, std::strlen(source), 8 * 1024 * 1024, 100000, error, sizeof(error)) !=
             SCUA_OK)
             throw std::runtime_error(error);
+        if (!sensorsEnabled)
+            throw std::runtime_error("native gamepad sensors were not enabled");
         module.removeJoystick(module.getJoystickFromID(id));
         auto callback = scua_get_global(p, "disconnected");
         if (scua_pcall(p, callback, nullptr, 0, nullptr, error, sizeof(error)) != SCUA_OK)
@@ -144,7 +188,8 @@ fn disconnected() assert(not joystick.is_connected(found)) end
         partition.p = nullptr;
         if (state.liveObjects)
             throw std::runtime_error("joystick handles leaked");
-        std::cout << "PASS: virtual joystick axes, buttons, hats, gamepad mapping and disconnect\n";
+        std::cout << "PASS: virtual joystick axes, buttons, hats, gamepad mapping, sensor enabling and "
+                     "disconnect\n";
         return 0;
     }
     catch (const std::exception &error)

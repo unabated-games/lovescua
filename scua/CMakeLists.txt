@@ -78,7 +78,7 @@ if(APPLE)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(scua_test_input test_input.cpp input.cpp ${scua_thread_support})
+    add_executable(scua_test_input test_input.cpp input.cpp resources.cpp ${scua_thread_support})
     get_target_property(scua_host_libraries lovescua LINK_LIBRARIES)
     target_link_libraries(scua_test_input PRIVATE ${scua_host_libraries})
     add_dependencies(lovescua scua_test_input)
@@ -86,7 +86,7 @@ if(BUILD_TESTING)
     target_link_libraries(scua_test_dialogs PRIVATE ${scua_host_libraries})
     add_test(NAME scua_dialogs COMMAND scua_test_dialogs)
     set_tests_properties(scua_dialogs PROPERTIES TIMEOUT 15 LABELS "no-window")
-    add_test(NAME scua_virtual_input COMMAND scua_test_input)
+    add_test(NAME scua_virtual_input COMMAND scua_test_input "${love_SOURCE_DIR}/examples/platform")
     set_tests_properties(scua_virtual_input PROPERTIES TIMEOUT 30)
     add_test(NAME scua_bounce COMMAND lovescua --no-input --verify --frames 120 --fixed-dt 0.016666666666666666
         "${love_SOURCE_DIR}/examples/bounce/main.scua")
@@ -155,6 +155,9 @@ if(BUILD_TESTING)
     find_program(SCUA_EXECUTABLE scua REQUIRED)
     add_test(NAME scua_sprite_controller COMMAND "${SCUA_EXECUTABLE}"
         "${love_SOURCE_DIR}/examples/sprite/controller_test.scua")
+    add_test(NAME scua_platform_motion COMMAND lovescua --headless
+        "${love_SOURCE_DIR}/examples/platform/motion_test.scua")
+    set_tests_properties(scua_platform_motion PROPERTIES TIMEOUT 15 LABELS "no-window")
     foreach(renderer metal opengl)
         add_test(NAME scua_sprites_${renderer} COMMAND lovescua --no-input --renderer ${renderer} --verify
             --frames 120 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/sprite")

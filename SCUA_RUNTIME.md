@@ -139,6 +139,20 @@ clipboard and URL actions, plus R to reload. Automatic verification opens no dia
 and restores the clipboard immediately after its check. Standalone sensors call
 `sensorupdated(id, kind, value: vec3, time_seconds)`; gamepad sensors call
 `gamepadsensorupdated` with the same arguments. Enable supported sensors explicitly.
+The platform example now detects/enables both kinds on the first update and rescans
+when controllers connect or disconnect. It lists controller names separately from
+motion capabilities, shows waiting/live readings and enable errors, and releases
+scan aliases. Accelerometer values use m/s² and gyroscope values use rad/s.
+Initialization runs outside reload staging and preserves sensors already enabled.
+
+Some macOS controllers need Apple's controller backend disabled at process startup:
+
+```sh
+SDL_JOYSTICK_MFI=0 ./build/lovescua examples/platform
+```
+
+The hint changes detection; it does not add motion capabilities to a controller.
+The host leaves backend selection to SDL and your environment.
 Physical controller/sensor coverage depends on attached hardware; see
 [the validation record](SCUA_VALIDATION.md).
 
