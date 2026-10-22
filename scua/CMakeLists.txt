@@ -119,6 +119,9 @@ if(BUILD_TESTING)
     add_test(NAME scua_state_reload COMMAND lovescua --headless --verify --frames 3 --save-dir "${CMAKE_BINARY_DIR}/test-state-saves" "${love_SOURCE_DIR}/examples/state_reload")
     add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
+    add_test(NAME scua_platform_keys COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_platform_keys.py" "$<TARGET_FILE:lovescua>")
+    set_tests_properties(scua_platform_keys PROPERTIES TIMEOUT 15 LABELS "no-window")
     add_test(NAME scua_compatibility_audit COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/compatibility_audit.py" --check)
     set_tests_properties(scua_compatibility_audit PROPERTIES TIMEOUT 15 LABELS "no-window")

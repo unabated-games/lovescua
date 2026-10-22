@@ -108,13 +108,14 @@ fn update(dt: float)
     end
   end
 end
-fn keypressed(key: string,repeat: bool)
-  if key=="o" then request_kind="open" request=love.window.show_file_dialog("open",{multiple=true,filters=[{name="Images",pattern="png;jpg;qoi;exr"}]}) end
-  if key=="s" then request_kind="save" request=love.window.show_file_dialog("save",{default_name="image.png",filters=[{name="PNG image",pattern="png"}]}) end
-  if key=="m" then love.window.show_message_box("LoveSCUA","Native dialogs are available.",{buttons=["OK","Cancel"],enter=0,escape=1}) end
-  if key=="c" then love.system.set_clipboard_text(message) end
-  if key=="u" then love.system.open_url("https://github.com/unabated-games/lovescua") end
-  if key=="r" then love.event.reload() end
+fn keypressed(key: string)
+  if key=="O" then request_kind="open" request=love.window.show_file_dialog("open",{multiple=true,filters=[{name="Images",pattern="png;jpg;qoi;exr"}]}) end
+  if key=="S" then request_kind="save" request=love.window.show_file_dialog("save",{default_name="image.png",filters=[{name="PNG image",pattern="png"}]}) end
+  if key=="M" then love.window.show_message_box("LoveSCUA","Native dialogs are available.",{buttons=["OK","Cancel"],enter=0,escape=1}) end
+  if key=="C" then love.system.set_clipboard_text(message) end
+  if key=="U" then love.system.open_url("https://github.com/unabated-games/lovescua") end
+  if key=="R" then love.event.reload() end
+  if key=="Escape" then love.event.quit() end
 end
 fn sensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`{kind}: {value} at {time}s` end
 fn gamepadsensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`Gamepad {id} {kind}: {value}` end

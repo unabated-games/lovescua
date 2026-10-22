@@ -77,3 +77,13 @@ Concurrency remains pending unreleased SCUA 0.38. Windows/Linux and distribution
 were excluded. See [runtime limits](SCUA_RUNTIME.md) and the
 [upstream migration audit](SCUA_COMPATIBILITY.md) for deliberate API boundaries and
 uncertified record-family mappings.
+
+
+## Platform keyboard regression follow-up
+
+Manual input exposed a callback mismatch missed by `--no-input`: the example
+required a second `keypressed` argument and used lowercase shortcut names. Both
+are corrected. `scua_platform_keys` extracts the actual handler and invokes it
+with the host's single SDL scancode-name argument. Stubbed OS actions verify all
+shortcuts without opening a window, chooser or browser or changing the clipboard.
+This adds keyboard-dispatch coverage; real chooser interaction remains manual.

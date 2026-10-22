@@ -102,3 +102,14 @@ Windows/Linux, distribution and released-0.38 concurrency remain excluded/pendin
 SCUA-team update: 0.38 frame control and multicore are implemented in unmerged PRs,
 with the multicore C ABI moving to 3. They are not released. This batch remains
 on the installed 0.37.0 ABI 2 SDK and does not introduce concurrency code.
+
+
+## Platform keyboard follow-up
+
+Fixed a manual-input regression reported on macOS: the platform example declared
+`keypressed(key, repeat)` although the host supplies one scancode-name argument.
+Its shortcuts also compared lowercase names against SDL's uppercase letter names.
+The handler now follows the existing callback contract, uses O/S/M/C/U/R and
+supports Escape to quit. A no-window regression executes the example's actual
+handler with one argument and stubs OS actions, checking every shortcut. The prior
+`--no-input` graphical checks did not exercise this callback.
