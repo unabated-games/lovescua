@@ -3,11 +3,13 @@ import fs
 
 let video = nil
 let ticks = 0
+let paused = false
+let loops = 0
 let size = vec2(0, 0)
 
 fn load()
   love.window.set_title("LÖVE + SCUA / native Theora playback")
-  match fs.read("res:sample.ogv")
+  match fs.read("res:motion.ogv")
     Ok(encoded) -> video = love.video.new(encoded)
     Error(error) -> assert(false, tostring(error))
   end
@@ -17,17 +19,28 @@ fn load()
   love.video.play(video)
 end
 
+fn restart()
+  love.video.seek(video, 0)
+  love.video.play(video)
+  paused = false
+end
+
 fn update(dt: float)
   ticks = ticks + 1
+  if not paused and not love.video.is_playing(video) then
+    restart()
+    loops = loops + 1
+  end
   love.video.update(video, dt)
 end
 
 fn keypressed(key: string)
   match key
     "Space" -> do
-      if love.video.is_playing(video) then love.video.pause(video) else love.video.play(video) end
+      paused = not paused
+      if paused then love.video.pause(video) else love.video.play(video) end
     end
-    "R" -> love.video.seek(video, 0)
+    "R" -> restart()
     "Escape" -> love.event.quit()
     _ -> nil
   end
@@ -37,16 +50,19 @@ fn draw()
   love.graphics.set_color(vec4(1, 1, 1, 1))
   let scale = min(850 / size.x, 450 / size.y)
   love.video.draw(video, vec2(480, 320), 0, vec2(scale, scale), size * 0.5)
-  love.graphics.print("Native Theora / resource bytes / YUV rendering / Space pauses / R rewinds", vec2(25, 25))
-  love.graphics.print(`{size} / {love.video.tell(video)} seconds`, vec2(25, 590))
+  love.graphics.print("8-second Theora motion test / loops automatically / Space pauses / R restarts", vec2(25, 25))
+  let status = if paused then "Paused" else "Playing" end
+  love.graphics.print(`{status} / {love.video.tell(video)} seconds / loops: {loops} / {size}`, vec2(25, 590))
 end
 
 fn verify()
   assert(ticks == 30)
-  if love.video.source(video)==nil then
+  let source = love.video.source(video)
+  if source==nil then
     assert(abs(love.video.tell(video) - 0.5) < 0.01)
   else
     assert(love.video.tell(video)>=0)
+    love.object.close(source)
   end
   love.video.pause(video)
   assert(not love.video.is_playing(video))

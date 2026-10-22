@@ -121,3 +121,23 @@ set before SDL initializes; the demo shows this suggestion when no controllers o
 motion sensors are detected. It does not force the backend globally. Controller
 detection and motion support are separate results. No physical motion event was
 available to verify. No graphical tests were run for this follow-up.
+
+
+## Video demo follow-up
+
+The old resource was an upstream logo fixture with 0.833 seconds of video and
+only a few distinct decoded frames. The demo now uses an original procedural
+8-second, 240-frame 640x360 Theora clip, with Vorbis audio ticks. Its generator
+is checked in and is only needed to rebuild the asset. Normal playback loops,
+Space pauses/resumes, R restarts, and the screen labels playback state/loop count.
+
+Window-free tests execute the example's actual control functions and check manual
+pause, resume, restart, end-of-stream looping and quit, in both builds. Two short
+30-frame Metal runs passed, with input disabled and OpenAL's silent backend. The
+final run also compares the normal audio-synchronized demo's first/last rendered
+frames and asserts its clock advances. In each run, a deterministic video-only
+probe compares rendered canvas
+pixels at different times, paused, rewound and after EOF/restart. It checks that
+motion continues beyond two seconds and that rewind restores the initial frame.
+The normal demo's embedded-audio path also loads, draws and passes its verification.
+No other graphical scenes or physical audio listening were performed.

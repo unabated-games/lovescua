@@ -133,3 +133,25 @@ no controller, while SDL_JOYSTICK_MFI=0 detected an 8BitDo Ultimate 2C Wireless.
 It advertised neither motion sensor. Backend selection remains an environment choice;
 the example documents/shows the hint. Physical gyro/accelerometer readings remain
 unverified; no graphics windows were opened for this follow-up.
+
+
+## Video demo follow-up
+
+The original demo used the upstream logo fixture: less than one second of video
+and only a few distinct frames, so it appeared to be a stationary sprite after
+startup. Replaced the demo input with an original 8-second Theora/Vorbis clip:
+moving shapes, frame digits, progress bar and quiet ticks. Added automatic looping,
+a pause state that prevents accidental restart while paused, and R to restart.
+The asset generator is checked in; it uses libtheora and FFmpeg only at regeneration.
+
+A window-free regression executes the actual demo controls. Renderer checks run
+one short demo window and compare decoded/drawn canvas pixels at separate times,
+paused, rewound and after EOF restart, alongside the existing callback verification.
+Audio is routed to OpenAL's silent backend during verification.
+
+Validation: controls pass in audio-enabled/audio-disabled builds; definitions load;
+FFprobe reports 8 seconds and 240 video frames. Two short Metal runs passed
+pixel-change, pause, rewind and EOF/restart checks with a video-only probe. The
+final run also verifies the actual demo's audio-synchronized clock and rendered
+frames advance, using the silent backend. No full graphical
+suite or physical listening check was run. No engine C++ changes were required.

@@ -364,16 +364,25 @@ snapshot remains ordinary script data after its native contact is retired.
 
 `examples/video/main.scua` reads Theora bytes through `fs.read`, creates a managed
 video, and calls `love.video.update(video, dt)` from `update`. Decoding runs on the
-main thread and accepts a step in [0, 0.25] seconds. Space pauses and R rewinds.
+main thread and accepts a step in [0, 0.25] seconds. The demo plays an original
+8-second clip with moving shapes, a frame counter, progress bar and quiet audio
+ticks. It loops automatically; Space pauses/resumes and R restarts playback.
 `set_source(video, audio_source)` retains and synchronizes an external audio
 source; nil restores delta timing. `new(encoded, audio=true)` automatically
 demultiplexes the first embedded Vorbis logical stream, including logical serial
 zero, and synchronizes video to its retained streaming source. `source(video)`
 returns a retained source alias or nil. Pass false for deterministic video-only
 stepping. Audio-disabled builds default to video-only and reject explicit true.
-The sample includes Vorbis; CTest uses the silent audio driver. Encoded video is bounded to 32 MiB
-and frame dimensions to 4096. The sample video is copied from the upstream
-`testing/resources/sample.ogv` fixture.
+The demo includes Vorbis; CTest uses the silent audio driver. Encoded video is
+bounded to 32 MiB and frame dimensions to 4096. The previous upstream logo fixture
+contains less than one second of video and remains available for codec regressions.
+`python3 examples/video/make_video.py` regenerates `res/motion.ogv` from original
+procedural shapes and tones, using a C compiler, pkg-config, libtheora/libogg and
+FFmpeg. Regeneration tools are not needed to run the checked-in clip.
+
+Video tests exercise the actual demo and compare rendered pixels at different
+playback positions, including pause, rewind and restart after EOF. The demo's
+keyboard/looping logic also has a window-free regression.
 
 `examples/rendering/main.scua` writes two canvases in one shader, uses a temporary
 depth/stencil attachment, and reads back the resulting pixels asynchronously.

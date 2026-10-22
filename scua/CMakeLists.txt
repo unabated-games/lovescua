@@ -119,6 +119,9 @@ if(BUILD_TESTING)
     add_test(NAME scua_state_reload COMMAND lovescua --headless --verify --frames 3 --save-dir "${CMAKE_BINARY_DIR}/test-state-saves" "${love_SOURCE_DIR}/examples/state_reload")
     add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
+    add_test(NAME scua_video_controls COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_video.py" "$<TARGET_FILE:lovescua>" --controls)
+    set_tests_properties(scua_video_controls PROPERTIES TIMEOUT 15 LABELS "no-window")
     add_test(NAME scua_platform_keys COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_platform_keys.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_platform_keys PROPERTIES TIMEOUT 15 LABELS "no-window")
@@ -175,8 +178,8 @@ if(BUILD_TESTING)
                 --frames 180 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/${example}")
             set_tests_properties(scua_${example}_${renderer} PROPERTIES TIMEOUT 30)
         endforeach()
-        add_test(NAME scua_video_${renderer} COMMAND lovescua --no-input --renderer ${renderer} --verify
-            --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/video")
+        add_test(NAME scua_video_${renderer} COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_video.py" "$<TARGET_FILE:lovescua>" ${renderer})
         set_tests_properties(scua_video_${renderer} PROPERTIES TIMEOUT 30 ENVIRONMENT "ALSOFT_DRIVERS=null")
         add_test(NAME scua_physics_${renderer} COMMAND lovescua --no-input --renderer ${renderer} --verify
             --frames 180 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/physics")
