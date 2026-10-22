@@ -1,0 +1,176 @@
+-- Optional typed wrappers. Distinct enum brands prevent accidental resource mixing.
+-- Native functions use wrapper.raw; runtime kind checks remain authoritative.
+import love_object as object
+
+enum TextureBrand { Value }
+record Texture { raw: any, brand: TextureBrand = TextureBrand.Value }
+fn texture(raw) -> Texture
+  return { raw = object.assert_kind(raw, "Texture"), brand = TextureBrand.Value }
+end
+
+enum QuadBrand { Value }
+record Quad { raw: any, brand: QuadBrand = QuadBrand.Value }
+fn quad(raw) -> Quad
+  return { raw = object.assert_kind(raw, "Quad"), brand = QuadBrand.Value }
+end
+
+enum FontBrand { Value }
+record Font { raw: any, brand: FontBrand = FontBrand.Value }
+fn font(raw) -> Font
+  return { raw = object.assert_kind(raw, "Font"), brand = FontBrand.Value }
+end
+
+enum ImageDataBrand { Value }
+record ImageData { raw: any, brand: ImageDataBrand = ImageDataBrand.Value }
+fn image_data(raw) -> ImageData
+  return { raw = object.assert_kind(raw, "ImageData"), brand = ImageDataBrand.Value }
+end
+
+enum ShaderBrand { Value }
+record Shader { raw: any, brand: ShaderBrand = ShaderBrand.Value }
+fn shader(raw) -> Shader
+  return { raw = object.assert_kind(raw, "Shader"), brand = ShaderBrand.Value }
+end
+
+enum SpriteBatchBrand { Value }
+record SpriteBatch { raw: any, brand: SpriteBatchBrand = SpriteBatchBrand.Value }
+fn sprite_batch(raw) -> SpriteBatch
+  return { raw = object.assert_kind(raw, "SpriteBatch"), brand = SpriteBatchBrand.Value }
+end
+
+enum ParticlesBrand { Value }
+record Particles { raw: any, brand: ParticlesBrand = ParticlesBrand.Value }
+fn particles(raw) -> Particles
+  return { raw = object.assert_kind(raw, "Particles"), brand = ParticlesBrand.Value }
+end
+
+enum SoundDataBrand { Value }
+record SoundData { raw: any, brand: SoundDataBrand = SoundDataBrand.Value }
+fn sound_data(raw) -> SoundData
+  return { raw = object.assert_kind(raw, "SoundData"), brand = SoundDataBrand.Value }
+end
+
+enum AudioSourceBrand { Value }
+record AudioSource { raw: any, brand: AudioSourceBrand = AudioSourceBrand.Value }
+fn audio_source(raw) -> AudioSource
+  return { raw = object.assert_kind(raw, "AudioSource"), brand = AudioSourceBrand.Value }
+end
+
+enum DecoderBrand { Value }
+record Decoder { raw: any, brand: DecoderBrand = DecoderBrand.Value }
+fn decoder(raw) -> Decoder
+  return { raw = object.assert_kind(raw, "Decoder"), brand = DecoderBrand.Value }
+end
+
+enum RecordingBrand { Value }
+record Recording { raw: any, brand: RecordingBrand = RecordingBrand.Value }
+fn recording(raw) -> Recording
+  return { raw = object.assert_kind(raw, "Recording"), brand = RecordingBrand.Value }
+end
+
+enum RandomBrand { Value }
+record Random { raw: any, brand: RandomBrand = RandomBrand.Value }
+fn random(raw) -> Random
+  return { raw = object.assert_kind(raw, "Random"), brand = RandomBrand.Value }
+end
+
+enum CurveBrand { Value }
+record Curve { raw: any, brand: CurveBrand = CurveBrand.Value }
+fn curve(raw) -> Curve
+  return { raw = object.assert_kind(raw, "Curve"), brand = CurveBrand.Value }
+end
+
+enum TransformBrand { Value }
+record Transform { raw: any, brand: TransformBrand = TransformBrand.Value }
+fn transform(raw) -> Transform
+  return { raw = object.assert_kind(raw, "Transform"), brand = TransformBrand.Value }
+end
+
+enum WorldBrand { Value }
+record World { raw: any, brand: WorldBrand = WorldBrand.Value }
+fn world(raw) -> World
+  return { raw = object.assert_kind(raw, "World"), brand = WorldBrand.Value }
+end
+
+enum BodyBrand { Value }
+record Body { raw: any, brand: BodyBrand = BodyBrand.Value }
+fn body(raw) -> Body
+  return { raw = object.assert_kind(raw, "Body"), brand = BodyBrand.Value }
+end
+
+enum ColliderBrand { Value }
+record Collider { raw: any, brand: ColliderBrand = ColliderBrand.Value }
+fn collider(raw) -> Collider
+  return { raw = object.assert_kind(raw, "Collider"), brand = ColliderBrand.Value }
+end
+
+enum JointBrand { Value }
+record Joint { raw: any, brand: JointBrand = JointBrand.Value }
+fn joint(raw) -> Joint
+  return { raw = object.assert_kind(raw, "Joint"), brand = JointBrand.Value }
+end
+
+enum MeshBrand { Value }
+record Mesh { raw: any, brand: MeshBrand = MeshBrand.Value }
+fn mesh(raw) -> Mesh
+  return { raw = object.assert_kind(raw, "Mesh"), brand = MeshBrand.Value }
+end
+
+enum TextBrand { Value }
+record Text { raw: any, brand: TextBrand = TextBrand.Value }
+fn text(raw) -> Text
+  return { raw = object.assert_kind(raw, "Text"), brand = TextBrand.Value }
+end
+
+enum JoystickBrand { Value }
+record Joystick { raw: any, brand: JoystickBrand = JoystickBrand.Value }
+fn joystick(raw) -> Joystick
+  return { raw = object.assert_kind(raw, "Joystick"), brand = JoystickBrand.Value }
+end
+
+enum VideoBrand { Value }
+record Video { raw: any, brand: VideoBrand = VideoBrand.Value }
+fn video(raw) -> Video
+  return { raw = object.assert_kind(raw, "Video"), brand = VideoBrand.Value }
+end
+
+enum ReadbackBrand { Value }
+record Readback { raw: any, brand: ReadbackBrand = ReadbackBrand.Value }
+fn readback(raw) -> Readback
+  return { raw = object.assert_kind(raw, "Readback"), brand = ReadbackBrand.Value }
+end
+
+enum CursorBrand { Value }
+record Cursor { raw: any, brand: CursorBrand = CursorBrand.Value }
+fn cursor(raw) -> Cursor
+  return { raw = object.assert_kind(raw, "Cursor"), brand = CursorBrand.Value }
+end
+
+enum BufferBrand { Value }
+record Buffer { raw: any, brand: BufferBrand = BufferBrand.Value }
+fn buffer(raw) -> Buffer
+  return { raw = object.assert_kind(raw, "Buffer"), brand = BufferBrand.Value }
+end
+
+enum CompressedImageDataBrand { Value }
+record CompressedImageData { raw: any, brand: CompressedImageDataBrand = CompressedImageDataBrand.Value }
+fn compressed_image_data(raw) -> CompressedImageData
+  return { raw = object.assert_kind(raw, "CompressedImageData"), brand = CompressedImageDataBrand.Value }
+end
+
+enum RasterizerBrand { Value }
+record Rasterizer { raw: any, brand: RasterizerBrand = RasterizerBrand.Value }
+fn rasterizer(raw) -> Rasterizer
+  return { raw = object.assert_kind(raw, "Rasterizer"), brand = RasterizerBrand.Value }
+end
+
+enum GlyphDataBrand { Value }
+record GlyphData { raw: any, brand: GlyphDataBrand = GlyphDataBrand.Value }
+fn glyph_data(raw) -> GlyphData
+  return { raw = object.assert_kind(raw, "GlyphData"), brand = GlyphDataBrand.Value }
+end
+
+fn close(resource) object.close(resource.raw) end
+fn is_open(resource) -> bool return object.is_open(resource.raw) end
+
+return { close = close, is_open = is_open, texture = texture, quad = quad, font = font, image_data = image_data, shader = shader, sprite_batch = sprite_batch, particles = particles, sound_data = sound_data, audio_source = audio_source, decoder = decoder, recording = recording, random = random, curve = curve, transform = transform, world = world, body = body, collider = collider, joint = joint, mesh = mesh, text = text, joystick = joystick, video = video, readback = readback, cursor = cursor, buffer = buffer, compressed_image_data = compressed_image_data, rasterizer = rasterizer, glyph_data = glyph_data }

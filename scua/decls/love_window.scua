@@ -62,3 +62,37 @@ fn safe_area() -> vec4 end
 fn to_pixels(position: vec2) -> vec2 end
 -- from pixels.
 fn from_pixels(position: vec2) -> vec2 end
+-- Update checked display, fullscreen, size, position, framebuffer and DPI settings.
+fn configure(settings: any) end
+-- Enumerate display resolutions and refresh rates.
+fn fullscreen_modes(display: int = 0) -> any end
+-- Read native display orientation.
+fn display_orientation(display: int = 0) -> string end
+-- Read native light/dark/unknown theme.
+fn system_theme() -> string end
+-- Read fullscreen state and type.
+fn fullscreen() -> any end
+-- Set a window icon from ImageData; support is platform-dependent.
+fn set_icon(data: any) -> bool end
+-- Get a retained icon image or nil.
+fn icon() -> any end
+-- Request native user attention.
+fn request_attention(continuous: bool = false) end
+-- Request orderly game/window shutdown.
+fn close() end
+-- Check native high-DPI policy.
+fn high_dpi_allowed() -> bool end
+-- Show a native message box with explicit button and default indices.
+fn show_message_box(title: string, message: string, settings: any) -> int end
+-- Open an asynchronous native chooser; poll by request id.
+fn show_file_dialog(kind: string, settings: any) -> int end
+-- Get nil while pending or a completed selection/error record.
+fn poll_file_dialog(request: int) -> any end
+-- Release a request and its selected-file permissions.
+fn release_file_dialog(request: int) end
+-- Read only an explicitly chosen open-file selection, up to 32 MiB.
+fn read_selected_file(request: int, index: int, relative: string = nil) -> bytes end
+-- List only inside an explicitly selected folder.
+fn list_selected_folder(request: int, relative: string = nil) -> any end
+-- Write only an explicitly chosen save-file selection, up to 32 MiB.
+fn write_selected_file(request: int, encoded: bytes) end

@@ -3,6 +3,7 @@ scua-version = "0.37"
 
 [tooling]
 declarations = [
+  "scua/decls/love_object.scua",
   "scua/decls/love_audio.scua",
   "scua/decls/love_data.scua",
   "scua/decls/love_event.scua",

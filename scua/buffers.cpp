@@ -300,6 +300,7 @@ void buffer_info(scua_ctx *ctx)
     r.integer("bytes", b->getSize());
     r.integer("length", b->getArrayLength());
     r.integer("stride", b->getArrayStride());
+    r.str("debug_name",b->getDebugName());
     const char *usage = "unknown";
     getConstant(b->getDataUsage(), usage);
     r.str("data_usage", usage);

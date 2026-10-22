@@ -1,6 +1,7 @@
 // Exercise the real LÖVE joystick bindings with SDL's virtual gamepad backend.
 #include "binding_util.h"
 #include "joystick/sdl/JoystickModule.h"
+#include "sensor_events.h"
 #include <SDL3/SDL.h>
 #include <cstring>
 #include <iostream>
@@ -55,6 +56,25 @@ int main()
             !SDL_SetJoystickVirtualHat(device, 0, SDL_HAT_UP))
             throw std::runtime_error(SDL_GetError());
         SDL_UpdateJoysticks();
+        SDL_Event event{};
+        event.type = SDL_EVENT_GAMEPAD_SENSOR_UPDATE;
+        event.gsensor.which = id;
+        event.gsensor.sensor = SDL_SENSOR_ACCEL;
+        event.gsensor.data[0] = 1.25f;
+        event.gsensor.sensor_timestamp = 1234567;
+        auto sensor = lovescua::sensorEvent(event);
+        if (!sensor.kind || std::strcmp(sensor.kind, "accelerometer") || sensor.id != id ||
+            sensor.data[0] != 1.25f || sensor.timestamp != 1234567 || !sensor.gamepad)
+            throw std::runtime_error("sensor event copy failed");
+        event.gsensor.data[1] = std::numeric_limits<float>::quiet_NaN();
+        if (lovescua::sensorEvent(event).kind)
+            throw std::runtime_error("non-finite sensor event accepted");
+        event = {};
+        event.type = SDL_EVENT_SENSOR_UPDATE;
+        event.sensor.which = 7;
+        event.sensor.data[2] = 9.81f;
+        if (!lovescua::sensorEvent(event, SDL_SENSOR_ACCEL).kind || lovescua::sensorEvent(event).kind)
+            throw std::runtime_error("standalone sensor kind routing failed");
         lovescua::Host state;
         state.joysticks = &module;
         auto p = scua_partition_new();
@@ -94,6 +114,10 @@ assert(joystick.is_connected(found))
 assert(joystick.info(found).gamepad)
 assert(joystick.info(found).axes==6)
 assert(joystick.info(found).buttons==16)
+assert(joystick.info(found).connected_index>=0)
+assert(joystick.info(found).axis_values.len()==6)
+assert(joystick.info(found).joystick_type!="")
+assert(joystick.mapping(found,"axis","leftx").index>=0)
 assert(joystick.axis(found,0)>0.49 and joystick.axis(found,0)<0.51)
 assert(joystick.is_down(found,0))
 assert(joystick.hat(found,0)=="u")

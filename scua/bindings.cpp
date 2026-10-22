@@ -245,7 +245,7 @@ void keyDown(scua_ctx *ctx)
 {
     arity(ctx, 1);
     auto name = string(ctx, 0);
-    SDL_Scancode key = SDL_GetScancodeFromName(name.c_str());
+    SDL_Scancode key = SDL_GetScancodeFromKey(SDL_GetKeyFromName(name.c_str()), nullptr);
     if (key == SDL_SCANCODE_UNKNOWN)
         throw std::invalid_argument("unknown key name: " + name);
     int count = 0;
@@ -382,11 +382,16 @@ void registerBindings(scua_partition *p, Host &state)
     registerVideo(p, state);
     registerDrawables(p, state);
     registerInput(p, state);
+    registerImageExtras(p, state);
+    registerPlatformExtras(p, state);
+    registerResources(p, state);
+    registerGraphicsExtras(p, state);
 }
 
 const std::vector<std::string> &bindingModules()
 {
     static const std::vector<std::string> modules = {"love_window",
+                                                     "love_object",
                                                      "love_graphics",
                                                      "love_keyboard",
                                                      "love_mouse",

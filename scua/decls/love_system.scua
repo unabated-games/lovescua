@@ -10,3 +10,15 @@ fn processor_count() -> int end
 fn memory_size() -> int end
 -- power info.
 fn power_info() -> any end
+-- Enumerate actual input/audio/sensor presence without starting microphone capture.
+fn hardware_info() -> any end
+-- Read text from the system clipboard.
+fn clipboard_text() -> string end
+-- Set text on the system clipboard.
+fn set_clipboard_text(text: string) end
+-- Open an http/https/mailto URL with the default application.
+fn open_url(url: string) -> bool end
+-- Read preferred locale names.
+fn preferred_locales() -> any end
+-- Report unavailable system vibration on the macOS host; gamepad rumble is separate.
+fn vibrate(seconds: float) -> bool end

@@ -8,8 +8,8 @@ fn decode_compressed(encoded: bytes) -> any end
 fn compressed_info(data: any) -> any end
 -- Copy compressed block bytes for a subresource.
 fn compressed_bytes(data: any, layer: int, mipmap: int) -> bytes end
--- Create transparent RGBA8 image data.
-fn new_data(width: int, height: int) -> any end
+-- Create zeroed CPU image data in a checked native format, optionally from exact raw bytes.
+fn new_data(width: int, height: int, format: string = "rgba8", raw: bytes = nil) -> any end
 -- Decode CPU image data.
 fn decode(encoded: bytes) -> any end
 -- Image-data dimensions.
@@ -26,3 +26,29 @@ fn clone(data: any) -> any end
 fn encode_png(data: any) -> bytes end
 -- Copy raw pixel bytes.
 fn bytes(data: any) -> bytes end
+-- Clone compressed blocks and preserve linear metadata.
+fn compressed_clone(data: any) -> any end
+-- Set compressed color-space metadata without altering blocks.
+fn compressed_set_linear(data: any, linear: bool) end
+-- Get format, linear flag, dimensions and raw byte layout.
+fn info(data: any) -> any end
+-- List CPU pixel formats supported by native ImageData.
+fn formats() -> any end
+-- Set color-space metadata without changing pixels.
+fn set_linear(data: any, linear: bool) end
+-- Encode PNG, TGA, EXR or QOI bytes using native format support.
+fn encode(data: any, format: string) -> bytes end
+-- Check native encoder support for a CPU pixel format.
+fn can_encode(pixel_format: string, encoded_format: string) -> bool end
+-- Convert CPU pixel representation; preserve linear metadata.
+fn convert(data: any, format: string) -> any end
+-- Copy a checked region with native format conversion and overlapping self-copy support.
+fn paste(destination: any, source: any, dx: int, dy: int, sx: int, sy: int, width: int, height: int) end
+-- Map up to 16384 pixels through a callback; stage writes until every callback succeeds.
+fn map_pixels(data: any, callback: any, region: vec4 = nil) end
+-- Extract retained cube faces from an engine-supported image layout.
+fn cube_faces(data: any) -> any end
+-- Extract retained volume slices from an engine-supported strip layout.
+fn volume_layers(data: any) -> any end
+-- Identify native compressed image containers.
+fn is_compressed(encoded: bytes) -> bool end

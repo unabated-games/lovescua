@@ -1,0 +1,28 @@
+import love
+import love_audio as audio
+let info=nil
+fn load()
+  info=love.system.hardware_info()
+  print(`Hardware: {info.joysticks} controllers, {info.sensors} sensors, {info.playback_devices} outputs, {info.recording_devices} recording devices ({info.audio_driver})`)
+  assert(not info.capture_started)
+  let device=audio.playback_device()
+  assert(device!="")
+  let previous=audio.master_volume()
+  audio.set_master_volume(0)
+  let result=pcall(fn()
+    audio.set_playback_device(device)
+    assert(audio.playback_device()==device,"physical output reopen")
+    let spatial=audio.spatialization()
+    let filters=audio.spatialization_filters()
+    print(`Audio: active output reopened; {filters.len()} HRTF filters; HRTF enabled={spatial.enabled}`)
+  end)
+  audio.set_master_volume(previous)
+  match result
+    Ok(_) -> nil
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+fn verify()
+  assert(info!=nil and not info.capture_started)
+  print("PASS: live device enumeration and silent output reopen; microphone capture and listening were not performed")
+end

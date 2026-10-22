@@ -20,6 +20,8 @@ fn hat(joystick: any, index: int) -> string end
 fn gamepad_axis(joystick: any, name: string) -> float end
 -- gamepad down. Joystick indices are zero-based.
 fn gamepad_down(joystick: any, name: string) -> bool end
+-- Get the native axis/button/hat binding of a gamepad input.
+fn mapping(joystick: any, kind: string, input: string) -> any end
 -- set player index. Joystick indices are zero-based.
 fn set_player_index(joystick: any, index: int) end
 -- vibration supported. Joystick indices are zero-based.

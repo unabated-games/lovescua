@@ -187,6 +187,7 @@ void compressed_info(scua_ctx *ctx)
     love::getConstant(c->getFormat(), format);
     Record r(ctx);
     r.str("format", format);
+    r.boolean("linear",c->isLinear());
     r.integer("width", c->getWidth());
     r.integer("height", c->getHeight());
     r.integer("slices", c->getSliceCount());
@@ -236,6 +237,7 @@ void texture_info(scua_ctx *ctx)
     r.str("type", type);
     r.str("format", format);
     r.str("mipmaps_mode", mips);
+    r.str("debug_name",t->getDebugName());
     r.integer("width", t->getWidth());
     r.integer("height", t->getHeight());
     r.integer("pixel_width", t->getPixelWidth());

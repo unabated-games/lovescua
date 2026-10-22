@@ -69,6 +69,7 @@ struct QuadResource
     love::graphics::Texture *texture;
     love::graphics::Quad *quad;
 };
+struct DialogInbox;
 struct Host
 {
     love::window::sdl::Window *window = nullptr;
@@ -80,6 +81,11 @@ struct Host
     bool quitting = false;
     bool drawing = false;
     bool checking = false;
+    bool cpuOnly = false, reloadRequested = false, staging = false;
+    std::set<scua_fn> stagingUnsafe;
+    std::string reloadError;
+    std::shared_ptr<DialogInbox> dialogs;
+    std::set<scua_fn> cpuAllowed;
     std::set<std::string> registeredBindings;
     scua_UserdataType imageType{}, quadType{};
     size_t liveImages = 0, liveQuads = 0;
@@ -95,11 +101,15 @@ struct Host
 };
 
 void registerBindings(scua_partition *partition, Host &host);
+void registerGraphicsExtras(scua_partition *, Host &);
+void registerResources(scua_partition *, Host &);
+void registerImageExtras(scua_partition *, Host &);
 void registerGraphics(scua_partition *, Host &);
 void registerRendering(scua_partition *, Host &);
 void registerBuffers(scua_partition *, Host &);
 void registerTextures(scua_partition *, Host &);
 void registerFonts(scua_partition *, Host &);
+void registerPlatformExtras(scua_partition *, Host &);
 void registerPlatform(scua_partition *, Host &);
 void registerInput(scua_partition *, Host &);
 void shutdownInput(Host &) noexcept;

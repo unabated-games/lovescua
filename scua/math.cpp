@@ -1,9 +1,9 @@
 // Native LÖVE math with managed generators, curves and transforms.
-#include "binding_util.h"
 #include "math/BezierCurve.h"
 #include "math/MathModule.h"
 #include "math/RandomGenerator.h"
 #include "math/Transform.h"
+#include "options.h"
 namespace lovescua
 {
 namespace
@@ -315,9 +315,11 @@ void replace_transform(scua_ctx *ctx)
     if (t)
         graphics(ctx).replaceTransform(t->getMatrix());
 }
+#include "math_extra.inc"
 } // namespace
 void registerMath(scua_partition *p, Host &state)
 {
+    registerMathExtras(p, state);
     for (auto kind : {ObjectKind::Random, ObjectKind::Curve, ObjectKind::Transform})
         registerObjectType(p, state, kind);
     registerFunctions(

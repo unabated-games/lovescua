@@ -145,6 +145,36 @@ void info(scua_ctx *ctx)
     r.integer("player_index", j->getPlayerIndex());
     r.boolean("connected", j->isConnected());
     r.boolean("gamepad", j->isGamepad());
+    int vendor = 0, product = 0, version = 0, battery = 0;
+    j->getDeviceInfo(vendor, product, version);
+    r.integer("vendor", vendor);
+    r.integer("product", product);
+    r.integer("product_version", version);
+    r.integer("connected_index", host(ctx).joysticks->getIndex(j));
+    const char *kind = "unknown";
+    love::joystick::Joystick::getConstant(j->getJoystickType(), kind);
+    r.str("joystick_type", kind);
+    kind = "unknown";
+    love::joystick::Joystick::getConstant(j->getGamepadType(), kind);
+    r.str("gamepad_type", kind);
+    kind = "unknown";
+    love::joystick::Joystick::getConstant(j->getPowerInfo(battery), kind);
+    r.str("power", kind);
+    r.integer("battery_percent", battery);
+    kind = "unknown";
+    love::joystick::Joystick::getConstant(j->getConnectionState(), kind);
+    r.str("connection", kind);
+    r.str("mapping", j->getGamepadMappingString());
+    float left = 0, right = 0;
+    j->getVibration(left, right);
+    float vibration[] = {left, right};
+    r.set("vibration", scua_vec(r.p, vibration, 2));
+    auto axes = scua_new_array(r.p, 0);
+    for (auto value : j->getAxes())
+        if (scua_array_push(r.p, axes, scua_num(r.p, value)) != SCUA_OK)
+            throw std::runtime_error("axes allocation failed");
+    r.set("axis_values", axes);
+
     r.done();
 }
 void is_connected(scua_ctx *ctx)
@@ -201,6 +231,46 @@ void gamepad_down(scua_ctx *ctx)
     auto j = joystick(ctx);
     if (j)
         scua_return_bool(ctx, j->isGamepadDown({button}));
+}
+void mapping(scua_ctx *c)
+{
+    arity(c, 3);
+    auto kind = string(c, 1), name = string(c, 2);
+    love::joystick::Joystick::GamepadInput in{};
+    if (kind == "axis")
+    {
+        in.type = love::joystick::Joystick::INPUT_TYPE_AXIS;
+        if (!love::joystick::Joystick::getConstant(name.c_str(), in.axis))
+            throw std::invalid_argument("unknown gamepad axis");
+    }
+    else if (kind == "button")
+    {
+        in.type = love::joystick::Joystick::INPUT_TYPE_BUTTON;
+        if (!love::joystick::Joystick::getConstant(name.c_str(), in.button))
+            throw std::invalid_argument("unknown gamepad button");
+    }
+    else
+        throw std::invalid_argument("mapping kind must be axis or button");
+    auto j = joystick(c);
+    if (!j)
+        return;
+    auto out = j->getGamepadMapping(in);
+    const char *type = "unknown";
+    love::joystick::Joystick::getConstant(out.type, type);
+    Record r(c);
+    r.str("type", type);
+    if (out.type == love::joystick::Joystick::INPUT_TYPE_AXIS)
+        r.integer("index", out.axis);
+    else if (out.type == love::joystick::Joystick::INPUT_TYPE_BUTTON)
+        r.integer("index", out.button);
+    else if (out.type == love::joystick::Joystick::INPUT_TYPE_HAT)
+    {
+        r.integer("index", out.hat.index);
+        const char *hat = "invalid";
+        love::joystick::Joystick::getConstant(out.hat.value, hat);
+        r.str("hat", hat);
+    }
+    r.done();
 }
 void set_player_index(scua_ctx *ctx)
 {
@@ -287,6 +357,13 @@ void touches(scua_ctx *ctx)
             Record r(ctx);
             r.integer("id", fingers[j]->id);
             r.integer("device", ids[i]);
+            auto type = SDL_GetTouchDeviceType(ids[i]);
+            r.str("device_type", type == SDL_TOUCH_DEVICE_DIRECT              ? "direct"
+                                 : type == SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE ? "indirectabsolute"
+                                 : type == SDL_TOUCH_DEVICE_INDIRECT_RELATIVE ? "indirectrelative"
+                                                                              : "unknown");
+            r.boolean("is_mouse", ids[i] == SDL_MOUSE_TOUCHID);
+
             r.num("pressure", fingers[j]->pressure);
             float xy[] = {fingers[j]->x * host(ctx).graphics->getWidth(),
                           fingers[j]->y * host(ctx).graphics->getHeight()};
@@ -324,6 +401,9 @@ void registerInput(scua_partition *p, Host &state)
             {"love_joystick", "gamepad_down", guarded<gamepad_down>,
              "gamepad_down(joystick: any, name: string) -> bool",
              "gamepad down. Joystick indices are zero-based."},
+            {"love_joystick", "mapping", guarded<mapping>,
+             "mapping(joystick: any, kind: string, input: string) -> any",
+             "Get the native axis/button/hat binding of a gamepad input."},
             {"love_joystick", "set_player_index", guarded<set_player_index>,
              "set_player_index(joystick: any, index: int)",
              "set player index. Joystick indices are zero-based."},

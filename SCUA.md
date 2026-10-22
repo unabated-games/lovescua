@@ -1,6 +1,6 @@
 # LÖVE + SCUA
 
-This is an altered LÖVE 12 development fork. The first working slice replaces
+This is an altered LÖVE 12 development fork. The SCUA integration replaces
 Lua's startup and bindings with a C++ host linked to **SCUA 0.37.0**. It uses
 LÖVE's actual window, graphics, font and image implementations. Game logic runs
 in SCUA; there is no Lua interpreter or Lua dependency in `lovescua`.
@@ -9,7 +9,8 @@ The host supports **macOS**, with Metal by default and OpenGL as an alternative.
 The integration now exposes hundreds of native functions for graphics, fonts,
 images, audio, math, physics, windowing and input, plus a SCUA filesystem facade.
 See the generated [API inventory](SCUA_API.md) for exact signatures. This remains
-a partial port: the supported surface and remaining work are listed below.
+a SCUA-oriented port: the supported surface and deliberate API differences are listed
+below and in the [upstream method audit](SCUA_COMPATIBILITY.md).
 
 ## Run the prepared build
 
@@ -37,6 +38,9 @@ From this repository:
 ./build/lovescua examples/audio_controls
 ./build/lovescua examples/events
 ./build/lovescua --save-dir "$PWD/build/demo-saves" examples/filesystem
+./build/lovescua examples/platform
+./build/lovescua --headless --verify --frames 1 examples/cpu_images
+./build/lovescua --headless --verify --frames 3 --save-dir "$PWD/build/demo-saves" examples/state_reload
 ```
 
 The sprite lab loads an original four-direction, four-frame robot sheet. Arrow
@@ -188,13 +192,13 @@ draw its own scene.
 
 The [generated API inventory](SCUA_API.md) lists every native signature. The
 familiar `love` facade exports `graphics`, `window`, `keyboard`, `mouse`, `event`,
-`timer`, `system`, `font`, `image`, `math`, `physics`, `joystick`, `sensor`, `touch` and `video`.
+`timer`, `system`, `font`, `image`, `math`, `physics`, `joystick`, `sensor`, `touch`, `video` and `object`.
 
 | Area | Working surface | Example |
 | --- | --- | --- |
 | Graphics | shapes, lines, points, transforms, scissors, blending, state stacks, renderer limits/stats | `examples/features` |
 | Fonts | TTF/OTF, image/BMFont rasterizers, glyph pixels/metrics, fallbacks, colored/wrapped/cached text | `examples/fonts_particles`, `examples/features`, `examples/mesh` |
-| Images/textures | CPU pixels, compressed blocks, array/cube/volume textures, persistent depth, views, compute writes and GPU copies | `examples/textures`, `examples/sprite`, `examples/mesh` |
+| Images/textures | CPU formats/raw pixels, HDR, conversions, map/paste, PNG/TGA/QOI/EXR encoding, compressed blocks, array/cube/volume textures, persistent depth, views, compute writes and GPU copies | `examples/cpu_images`, `examples/textures`, `examples/sprite`, `examples/mesh` |
 | Rendering objects | canvases/multiple render targets, stencil/depth/color masks, shaders, scalar/vector/array/matrix uniforms, sampler/texel/storage buffers, asynchronous readback, typed GPU uploads, custom-format meshes, instancing, batches and particles | `examples/compute`, `examples/instancing`, `examples/rendering`, `examples/features`, `examples/particles`, `examples/mesh` |
 | Math | seeded generators/state, uniform/normal random numbers, noise, curves, triangulation, transforms, gamma conversion | `examples/math` |
 | Data | LZ4/zlib/gzip/deflate, hex/base64, MD5 and SHA family hashes | `examples/math` |
@@ -202,7 +206,7 @@ familiar `love` facade exports `graphics`, `window`, `keyboard`, `mouse`, `event
 | Physics | worlds, bodies, circle/box/polygon/edge/chain fixtures, filtering, forces, all joint families, motor/limit/spring controls, shared aliases, mass/shape properties, persistent contacts, filter/query callbacks and sorted ray hits | `examples/physics_controls`, `examples/physics`, `examples/contacts`, `examples/joints` |
 | Video | managed in-memory Theora decoding, explicit deterministic stepping, seeking, native YUV rendering, embedded Vorbis audio and external source synchronization | `examples/video`, `examples/audio_controls` |
 | Files | SCUA resources/packs, explicit user saves, JSON, atomic replacement, directory operations | `examples/filesystem` |
-| Input/platform | polling, custom/system cursors, text input, callbacks, gamepad mapping/vibration/sensor controls, standalone accelerometer/gyroscope polling, touch, window/display and timer/system queries | `examples/events`, native virtual-input test |
+| Input/platform | polling, custom/system cursors, text input, callbacks, gamepad mapping/vibration/sensor controls, standalone accelerometer/gyroscope polling, touch, full window settings, dialogs/clipboard/URL, sensor events, window/display and timer/system queries | `examples/platform`, `examples/events`, native virtual-input test |
 
 Import optional native modules in a game as `import love_audio as audio` and
 `import love_sound as sound`. Import the SCUA `filesystem` facade separately;
@@ -219,7 +223,10 @@ PCM channel numbers remain one-based to match the engine.
 Coordinates use logical drawing pixels, including on Retina displays. Vectors
 cross the C boundary as SCUA values. Mesh vertices can be typed SCUA records with
 `position: vec2`, `uv: vec2`, and `color: vec4`. Engine objects are opaque managed
-values with runtime type checks; their declaration type is currently `any`.
+values with runtime type checks; their declaration type is currently `any`. The optional
+`handles` facade adds 28 resource record types with enum brands and checked factories.
+Pass `wrapper.raw` to native functions. See [runtime and lifecycle details](SCUA_RUNTIME.md)
+for CPU image formats, typed wrappers, desktop services, logical saves and hot reload.
 
 [`binding_util.h`](scua/binding_util.h) shares argument checks, the exception
 boundary, result construction and retained engine-object ownership. Individual
@@ -696,7 +703,8 @@ no automatic GPU-resource snapshot/revival in this integration.
 The loader accepts encoded data up to 16 MiB and decoded dimensions up to
 4096×4096. The userdata registry allows 4096 live/pending resource objects.
 Native decoding/GPU allocations are outside SCUA's arena memory cap; the
-dimension check currently happens after decoding. CPU image data is RGBA8;
+dimension check currently happens after decoding. CPU image data supports concrete native
+formats, with raw-only access for formats without pixel get/set support;
 encoded CPU images/audio accept up to 32 MiB. Decompression and decoded audio
 have a 32 MiB output ceiling. Whole-sound decoding also limits declared duration
 to 120 seconds; use streaming for longer tracks. GPU readback capability depends on the renderer;
@@ -802,24 +810,28 @@ do not require a display. The regular
 `scua` command can format the example, but cannot run it by itself: its engine
 functions are supplied by `lovescua`.
 
-## Remaining conversion work
+## Remaining work and compatibility
 
-The current port provides broad working modules; full LÖVE parity remains incomplete.
-The main gaps are:
+The macOS feature batch adds CPU image formats/operations/encoders, desktop settings
+and asynchronous dialogs, sensor event delivery, logical saves, staged hot reload,
+optional resource types and an upstream migration audit. The current registry has
+700 native functions in 19 modules. [Runtime details](SCUA_RUNTIME.md) describe the
+interfaces and rollback/typing limits; [validation](SCUA_VALIDATION.md) records what
+was actually checked.
 
-- Native thread/channel APIs. SCUA actors, coroutines and messaging should guide
-  the concurrency design.
-- Additional CPU image-format APIs.
-- Physical audio output switching, HRTF listening and microphone capture verification.
-  Routing/getters, device controls, embedded Vorbis audio, tracker decoding, physics
-  properties/query callbacks and persistent contact editing are implemented and
-  covered by the affected integration scenes; they are no longer conversion gaps.
-- Platform dialogs, clipboard/URL actions, complete display-mode settings,
-  sensor event callbacks and physical input hardware validation beyond virtual input.
-- Notarized macOS application bundles, save/load of logical game state, hot reload,
-  Linux/Windows builds and packaging, and nominal SCUA types for handles.
+- Concurrency is pending the released SCUA 0.38 SDK. Frame control and multicore
+  exist in unmerged upstream PRs; this host still uses 0.37.0 ABI 2.
+- Physical controllers/sensors, microphone capture, audible playback/HRTF and some
+  interactive desktop behavior still need human/hardware verification. The real
+  CoreAudio output was reopened silently; this is not a listening test.
+- Windows/Linux builds, distribution, notarization and application bundles remain
+  outside the authorized conversion batch.
+- Lua overloads, ambient filesystem/File objects, raw pointers and exact Lua Data
+  binary-format compatibility are deliberately replaced or excluded. The
+  [1,090-entry migration audit](SCUA_COMPATIBILITY.md) lists per-method destinations
+  and boundaries. Consolidated record families are not certified parity for every
+  Lua property. Graphics capabilities continue to depend on the renderer.
 
-The native API count measures entry points, not upstream compatibility. Existing
-Lua games still need their scripts ported to SCUA, and overloads/defaults do not
-all match LÖVE's Lua API. New examples are runnable integration examples rather
-than a claim that the upstream example/test suite has all been converted.
+Existing Lua games need their scripts ported to SCUA. The examples are runnable
+integration examples, not a claim that the entire upstream example/test suite has
+been converted or that all Lua API behavior has been reproduced.

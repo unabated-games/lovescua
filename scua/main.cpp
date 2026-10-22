@@ -1,9 +1,13 @@
 // SCUA host for this altered LÖVE fork. See ../license.txt.
+#include "audio/Audio.h"
 #include "bindings.h"
 #include "filesystem/FileData.h"
 #include "font/freetype/Font.h"
 #include "image/Image.h"
 #include "joystick/sdl/JoystickModule.h"
+#include "mouse/Mouse.h"
+#include "sensor/Sensor.h"
+#include "sensor_events.h"
 
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -13,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -29,7 +34,7 @@ struct Options
     std::string renderer = "metal";
     uint64_t frames = 0;
     double fixedDt = 0;
-    bool noInput = false, check = false;
+    bool noInput = false, check = false, headless = false, watch = false, reportResources = false;
     std::vector<std::string> mounts;
 };
 
@@ -52,6 +57,8 @@ void usage()
                  "                [--screenshot FILE.png] [--verify] [--no-input] GAME.scua|DIRECTORY\n"
                  "                [--mount RESOURCE_DIRECTORY_OR_PACK] (repeatable)\n"
                  "                [--save-dir DIRECTORY] [--user-id APP_ID] (opt-in saves)\n"
+                 "                [--watch] (reload changed SCUA files; preserve snapshot/restore state)\n"
+                 "       lovescua --headless [--frames N] [--verify] GAME (non-graphical bindings)\n"
                  "       lovescua --check GAME.scua|DIRECTORY (no window; loads top-level definitions)\n"
                  "       lovescua --write-decls DIRECTORY\n"
                  "       lovescua --print-module-path\n"
@@ -114,11 +121,13 @@ class Callbacks
         mousemoved{}, wheelmoved{}, textinput{}, textedited{}, focus{}, mousefocus{}, visible{},
         touchpressed{}, touchreleased{}, touchmoved{}, joystickadded{}, joystickremoved{}, joystickpressed{},
         joystickreleased{}, joystickaxis{}, gamepadpressed{}, gamepadreleased{}, gamepadaxis{}, event{},
-        resize{}, quit{}, verify{};
-    explicit Callbacks(scua_partition *p) : p(p)
+        resize{}, quit{}, verify{}, sensorupdated{}, gamepadsensorupdated{}, snapshot{}, restore{};
+    explicit Callbacks(scua_partition *p, bool requireDraw = true) : p(p)
     {
         Scope scope(p);
         load = lookup("load");
+        snapshot = lookup("snapshot");
+        restore = lookup("restore");
         update = lookup("update");
         draw = lookup("draw");
         keypressed = lookup("keypressed");
@@ -147,7 +156,9 @@ class Callbacks
         event = lookup("event");
         quit = lookup("quit");
         verify = lookup("verify");
-        if (!present(draw))
+        sensorupdated = lookup("sensorupdated");
+        gamepadsensorupdated = lookup("gamepadsensorupdated");
+        if (requireDraw && !present(draw))
             throw std::runtime_error("game must define fn draw()");
     }
     scua_Handle lookup(const char *name)
@@ -199,7 +210,11 @@ class Callbacks
                            event,
                            resize,
                            quit,
-                           verify})
+                           verify,
+                           sensorupdated,
+                           gamepadsensorupdated,
+                           snapshot,
+                           restore})
             if (present(value))
                 scua_unpin_global(p, value);
     }
@@ -236,6 +251,7 @@ struct Screenshot
         }
     }
 };
+#include "game.inc"
 } // namespace
 
 int main(int argc, char **argv)
@@ -303,6 +319,10 @@ int main(int argc, char **argv)
                 options.mounts.push_back(value());
             else if (arg == "--no-input")
                 options.noInput = true;
+            else if (arg == "--headless")
+                options.headless = true;
+            else if (arg == "--watch")
+                options.watch = true;
             else if (arg == "--check")
                 options.check = true;
             else if (arg == "--verify")
@@ -321,6 +341,7 @@ int main(int argc, char **argv)
         if (verify && !options.frames)
             throw std::invalid_argument("--verify requires --frames");
 
+        options.reportResources = verify;
         lovescua::Host host;
         host.ignoreInput = options.noInput;
         if (!options.declarations.empty())
@@ -367,6 +388,50 @@ int main(int argc, char **argv)
                 << "PASS: SCUA script definitions loaded without a window (callbacks were not executed)\n";
             return 0;
         }
+        if (!options.mounts.empty())
+        {
+            Partition mounting(scua_partition_new(), DestroyPartition{&host, false});
+            char error[4096]{};
+            for (auto &mount : options.mounts)
+                if (scua_mount(mounting.get(), mount.c_str(), error, sizeof(error)) != SCUA_OK)
+                    throw std::runtime_error(error);
+        }
+        if (options.headless)
+        {
+            EnginePtr<love::image::Image> image(new love::image::Image());
+            host.cpuOnly = true;
+            auto game = Game::create(host, options);
+            SourceWatch watch(options);
+            uint64_t frames = options.frames ? options.frames : 1, executed = 0;
+            for (uint64_t i = 0; i < frames && !game->host.quitting; ++i)
+            {
+                if (game->host.reloadRequested || (options.watch && watch.changed(options)))
+                    reloadGame(game, options);
+                Scope scope(game->partition.get());
+                auto dt = options.fixedDt ? options.fixedDt : 1.0 / 60;
+                game->host.delta = dt;
+                game->host.elapsed += dt;
+                ++game->host.frameCount;
+                game->host.averageDelta = game->host.elapsed / game->host.frameCount;
+                auto arg = scua_num(game->partition.get(), dt);
+                game->callbacks->call(game->callbacks->update, "update", &arg, 1);
+                ++executed;
+            }
+            if (verify)
+            {
+                if (executed != frames)
+                    throw std::runtime_error("game quit before requested frame count");
+                if (!game->callbacks->present(game->callbacks->verify))
+                    throw std::runtime_error("--verify requires fn verify()");
+                Scope scope(game->partition.get());
+                game->callbacks->call(game->callbacks->verify, "verify");
+            }
+            {
+                Scope scope(game->partition.get());
+                game->callbacks->call(game->callbacks->quit, "quit");
+            }
+            return 0;
+        }
         // Keep SDL and every SCUA callback on the main thread. The window retains
         // graphics; close and detach it before releasing the engine modules.
         EnginePtr<love::window::sdl::Window> window(new love::window::sdl::Window());
@@ -397,52 +462,40 @@ int main(int argc, char **argv)
 
         // Declare the partition after the graphics context so every exit path
         // destroys script-owned GPU resources before closing the window.
-        struct CloseAudio
+        auto game = Game::create(host, options);
+        SourceWatch watch(options);
         {
-            lovescua::Host &state;
-            ~CloseAudio()
-            {
-                lovescua::shutdownAudio(state);
-                lovescua::shutdownInput(state);
-            }
-        } closeAudio{host};
-        Partition partition(scua_partition_new(), DestroyPartition{&host, verify});
-        if (!partition)
-            throw std::runtime_error("could not create SCUA partition");
-        lovescua::registerBindings(partition.get(), host);
-        char error[4096] = {};
-        if (scua_use_project(partition.get(), options.script.parent_path().c_str(), error, sizeof(error)) !=
-            SCUA_OK)
-            throw std::runtime_error(error);
-        if (!options.saveDirectory.empty() || !options.userId.empty())
-            if (scua_grant_user(partition.get(), options.userId.empty() ? nullptr : options.userId.c_str(),
-                                options.saveDirectory.empty() ? nullptr : options.saveDirectory.c_str(), 0,
-                                error, sizeof(error)) != SCUA_OK)
-                throw std::runtime_error(error);
-        if (scua_add_module_path(partition.get(), runtimeModules().c_str()) != SCUA_OK)
-            throw std::runtime_error("could not add LÖVE module path");
-        for (const auto &mount : options.mounts)
-            if (scua_mount(partition.get(), mount.c_str(), error, sizeof(error)) != SCUA_OK)
-                throw std::runtime_error(error);
-
-        if (scua_load_script_file(partition.get(), options.script.c_str(), 64 * 1024 * 1024, 1000000, error,
-                                  sizeof(error)) != SCUA_OK)
-            throw std::runtime_error(error);
-        {
-            Callbacks callbacks(partition.get());
-            {
-                Scope scope(partition.get());
-                callbacks.call(callbacks.load, "load");
-            }
             Screenshot screenshot{options.screenshot, "", false};
             uint64_t frames = 0, previous = SDL_GetPerformanceCounter();
-            while (!host.quitting && (!options.frames || frames < options.frames))
+            while (!game->host.quitting && (!options.frames || frames < options.frames))
             {
-                Scope scope(partition.get());
+                if (game->host.reloadRequested || (options.watch && watch.changed(options)))
+                    reloadGame(game, options);
+                Scope scope(game->partition.get());
                 SDL_Event event;
                 while (SDL_PollEvent(&event))
                 {
                     window->handleSDLEvent(event);
+                    if (event.type == SDL_EVENT_SENSOR_UPDATE ||
+                        event.type == SDL_EVENT_GAMEPAD_SENSOR_UPDATE)
+                    {
+                        auto data =
+                            lovescua::sensorEvent(event, event.type == SDL_EVENT_SENSOR_UPDATE
+                                                             ? SDL_GetSensorTypeForID(event.sensor.which)
+                                                             : SDL_SENSOR_UNKNOWN);
+                        if (data.kind && !options.noInput)
+                        {
+                            auto p = game->partition.get();
+                            scua_Handle args[] = {
+                                scua_int(p, data.id), scua_string(p, data.kind, std::strlen(data.kind)),
+                                scua_vec(p, data.data, 3), scua_num(p, double(data.timestamp) / 1e9)};
+                            game->callbacks->call(data.gamepad ? game->callbacks->gamepadsensorupdated
+                                                               : game->callbacks->sensorupdated,
+                                                  data.gamepad ? "gamepadsensorupdated" : "sensorupdated",
+                                                  args, 4);
+                        }
+                    }
+
                     // Verification windows must not react to desktop typing or
                     // pointer movement while their owner works in another app.
                     if (options.noInput &&
@@ -453,13 +506,13 @@ int main(int argc, char **argv)
                     if (event.type == SDL_EVENT_JOYSTICK_ADDED)
                     {
                         joysticks->addJoystick(event.jdevice.which);
-                        auto id = scua_int(partition.get(), event.jdevice.which);
-                        callbacks.call(callbacks.joystickadded, "joystickadded", &id, 1);
+                        auto id = scua_int(game->partition.get(), event.jdevice.which);
+                        game->callbacks->call(game->callbacks->joystickadded, "joystickadded", &id, 1);
                     }
                     if (event.type == SDL_EVENT_JOYSTICK_REMOVED)
                     {
-                        auto id = scua_int(partition.get(), event.jdevice.which);
-                        callbacks.call(callbacks.joystickremoved, "joystickremoved", &id, 1);
+                        auto id = scua_int(game->partition.get(), event.jdevice.which);
+                        game->callbacks->call(game->callbacks->joystickremoved, "joystickremoved", &id, 1);
                     }
                     if (event.type == SDL_EVENT_GAMEPAD_ADDED)
                     {
@@ -470,21 +523,23 @@ int main(int argc, char **argv)
                     if (event.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN ||
                         event.type == SDL_EVENT_JOYSTICK_BUTTON_UP)
                     {
-                        scua_Handle args[] = {scua_int(partition.get(), event.jbutton.which),
-                                              scua_int(partition.get(), event.jbutton.button)};
+                        scua_Handle args[] = {scua_int(game->partition.get(), event.jbutton.which),
+                                              scua_int(game->partition.get(), event.jbutton.button)};
                         if (event.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN)
-                            callbacks.call(callbacks.joystickpressed, "joystickpressed", args, 2);
+                            game->callbacks->call(game->callbacks->joystickpressed, "joystickpressed", args,
+                                                  2);
                         else
-                            callbacks.call(callbacks.joystickreleased, "joystickreleased", args, 2);
+                            game->callbacks->call(game->callbacks->joystickreleased, "joystickreleased", args,
+                                                  2);
                     }
                     if (event.type == SDL_EVENT_JOYSTICK_AXIS_MOTION)
                     {
-                        scua_Handle args[] = {scua_int(partition.get(), event.jaxis.which),
-                                              scua_int(partition.get(), event.jaxis.axis),
-                                              scua_num(partition.get(), event.jaxis.value < 0
-                                                                            ? event.jaxis.value / 32768.0
-                                                                            : event.jaxis.value / 32767.0)};
-                        callbacks.call(callbacks.joystickaxis, "joystickaxis", args, 3);
+                        scua_Handle args[] = {scua_int(game->partition.get(), event.jaxis.which),
+                                              scua_int(game->partition.get(), event.jaxis.axis),
+                                              scua_num(game->partition.get(),
+                                                       event.jaxis.value < 0 ? event.jaxis.value / 32768.0
+                                                                             : event.jaxis.value / 32767.0)};
+                        game->callbacks->call(game->callbacks->joystickaxis, "joystickaxis", args, 3);
                     }
                     if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ||
                         event.type == SDL_EVENT_GAMEPAD_BUTTON_UP)
@@ -493,12 +548,15 @@ int main(int argc, char **argv)
                             static_cast<SDL_GamepadButton>(event.gbutton.button));
                         if (name)
                         {
-                            scua_Handle args[] = {scua_int(partition.get(), event.gbutton.which),
-                                                  scua_string(partition.get(), name, std::strlen(name))};
+                            scua_Handle args[] = {
+                                scua_int(game->partition.get(), event.gbutton.which),
+                                scua_string(game->partition.get(), name, std::strlen(name))};
                             if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
-                                callbacks.call(callbacks.gamepadpressed, "gamepadpressed", args, 2);
+                                game->callbacks->call(game->callbacks->gamepadpressed, "gamepadpressed", args,
+                                                      2);
                             else
-                                callbacks.call(callbacks.gamepadreleased, "gamepadreleased", args, 2);
+                                game->callbacks->call(game->callbacks->gamepadreleased, "gamepadreleased",
+                                                      args, 2);
                         }
                     }
                     if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION)
@@ -508,12 +566,12 @@ int main(int argc, char **argv)
                         if (name)
                         {
                             scua_Handle args[] = {
-                                scua_int(partition.get(), event.gaxis.which),
-                                scua_string(partition.get(), name, std::strlen(name)),
-                                scua_num(partition.get(), event.gaxis.value < 0
-                                                              ? event.gaxis.value / 32768.0
-                                                              : event.gaxis.value / 32767.0)};
-                            callbacks.call(callbacks.gamepadaxis, "gamepadaxis", args, 3);
+                                scua_int(game->partition.get(), event.gaxis.which),
+                                scua_string(game->partition.get(), name, std::strlen(name)),
+                                scua_num(game->partition.get(), event.gaxis.value < 0
+                                                                    ? event.gaxis.value / 32768.0
+                                                                    : event.gaxis.value / 32767.0)};
+                            game->callbacks->call(game->callbacks->gamepadaxis, "gamepadaxis", args, 3);
                         }
                     }
                     if (event.type == SDL_EVENT_JOYSTICK_REMOVED)
@@ -523,22 +581,23 @@ int main(int argc, char **argv)
                             joysticks->removeJoystick(j);
                     }
                     if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
-                        host.quitting = true;
-                    if ((event.type == SDL_EVENT_KEY_DOWN && (!event.key.repeat || host.keyRepeat)) ||
+                        game->host.quitting = true;
+                    if ((event.type == SDL_EVENT_KEY_DOWN && (!event.key.repeat || game->host.keyRepeat)) ||
                         event.type == SDL_EVENT_KEY_UP)
                     {
                         const char *name = SDL_GetScancodeName(event.key.scancode);
-                        auto key = scua_string(partition.get(), name, std::char_traits<char>::length(name));
+                        auto key =
+                            scua_string(game->partition.get(), name, std::char_traits<char>::length(name));
                         if (event.type == SDL_EVENT_KEY_DOWN)
-                            callbacks.call(callbacks.keypressed, "keypressed", &key, 1);
+                            game->callbacks->call(game->callbacks->keypressed, "keypressed", &key, 1);
                         else
-                            callbacks.call(callbacks.keyreleased, "keyreleased", &key, 1);
+                            game->callbacks->call(game->callbacks->keyreleased, "keyreleased", &key, 1);
                     }
                     auto point = [&](double x, double y)
                     {
                         window->windowToDPICoords(&x, &y);
                         float v[] = {static_cast<float>(x), static_cast<float>(y)};
-                        return scua_vec(partition.get(), v, 2);
+                        return scua_vec(game->partition.get(), v, 2);
                     };
                     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP)
                     {
@@ -546,82 +605,84 @@ int main(int argc, char **argv)
                                      : event.button.button == SDL_BUTTON_MIDDLE ? 3
                                                                                 : event.button.button;
                         scua_Handle args[] = {point(event.button.x, event.button.y),
-                                              scua_int(partition.get(), button)};
+                                              scua_int(game->partition.get(), button)};
                         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
-                            callbacks.call(callbacks.mousepressed, "mousepressed", args, 2);
+                            game->callbacks->call(game->callbacks->mousepressed, "mousepressed", args, 2);
                         else
-                            callbacks.call(callbacks.mousereleased, "mousereleased", args, 2);
+                            game->callbacks->call(game->callbacks->mousereleased, "mousereleased", args, 2);
                     }
                     if (event.type == SDL_EVENT_MOUSE_MOTION)
                     {
                         scua_Handle args[] = {point(event.motion.x, event.motion.y),
                                               point(event.motion.xrel, event.motion.yrel)};
-                        callbacks.call(callbacks.mousemoved, "mousemoved", args, 2);
+                        game->callbacks->call(game->callbacks->mousemoved, "mousemoved", args, 2);
                     }
                     if (event.type == SDL_EVENT_MOUSE_WHEEL)
                     {
                         float direction = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1;
                         float v[] = {event.wheel.x * direction, event.wheel.y * direction};
-                        auto arg = scua_vec(partition.get(), v, 2);
-                        callbacks.call(callbacks.wheelmoved, "wheelmoved", &arg, 1);
+                        auto arg = scua_vec(game->partition.get(), v, 2);
+                        game->callbacks->call(game->callbacks->wheelmoved, "wheelmoved", &arg, 1);
                     }
                     if (event.type == SDL_EVENT_TEXT_INPUT)
                     {
                         auto arg =
-                            scua_string(partition.get(), event.text.text, std::strlen(event.text.text));
-                        callbacks.call(callbacks.textinput, "textinput", &arg, 1);
+                            scua_string(game->partition.get(), event.text.text, std::strlen(event.text.text));
+                        game->callbacks->call(game->callbacks->textinput, "textinput", &arg, 1);
                     }
                     if (event.type == SDL_EVENT_TEXT_EDITING)
                     {
                         scua_Handle args[] = {
-                            scua_string(partition.get(), event.edit.text, std::strlen(event.edit.text)),
-                            scua_int(partition.get(), event.edit.start),
-                            scua_int(partition.get(), event.edit.length)};
-                        callbacks.call(callbacks.textedited, "textedited", args, 3);
+                            scua_string(game->partition.get(), event.edit.text, std::strlen(event.edit.text)),
+                            scua_int(game->partition.get(), event.edit.start),
+                            scua_int(game->partition.get(), event.edit.length)};
+                        game->callbacks->call(game->callbacks->textedited, "textedited", args, 3);
                     }
                     if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED ||
                         event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
                     {
-                        auto arg = scua_bool(partition.get(), event.type == SDL_EVENT_WINDOW_FOCUS_GAINED);
-                        callbacks.call(callbacks.focus, "focus", &arg, 1);
+                        auto arg =
+                            scua_bool(game->partition.get(), event.type == SDL_EVENT_WINDOW_FOCUS_GAINED);
+                        game->callbacks->call(game->callbacks->focus, "focus", &arg, 1);
                     }
                     if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER ||
                         event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE)
                     {
-                        auto arg = scua_bool(partition.get(), event.type == SDL_EVENT_WINDOW_MOUSE_ENTER);
-                        callbacks.call(callbacks.mousefocus, "mousefocus", &arg, 1);
+                        auto arg =
+                            scua_bool(game->partition.get(), event.type == SDL_EVENT_WINDOW_MOUSE_ENTER);
+                        game->callbacks->call(game->callbacks->mousefocus, "mousefocus", &arg, 1);
                     }
                     if (event.type == SDL_EVENT_WINDOW_SHOWN || event.type == SDL_EVENT_WINDOW_HIDDEN)
                     {
-                        auto arg = scua_bool(partition.get(), event.type == SDL_EVENT_WINDOW_SHOWN);
-                        callbacks.call(callbacks.visible, "visible", &arg, 1);
+                        auto arg = scua_bool(game->partition.get(), event.type == SDL_EVENT_WINDOW_SHOWN);
+                        game->callbacks->call(game->callbacks->visible, "visible", &arg, 1);
                     }
                     if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_UP ||
                         event.type == SDL_EVENT_FINGER_MOTION)
                     {
                         float xy[] = {event.tfinger.x * graphics->getWidth(),
                                       event.tfinger.y * graphics->getHeight()};
-                        scua_Handle args[] = {scua_int(partition.get(), event.tfinger.fingerID),
-                                              scua_vec(partition.get(), xy, 2),
-                                              scua_num(partition.get(), event.tfinger.pressure)};
+                        scua_Handle args[] = {scua_int(game->partition.get(), event.tfinger.fingerID),
+                                              scua_vec(game->partition.get(), xy, 2),
+                                              scua_num(game->partition.get(), event.tfinger.pressure)};
                         if (event.type == SDL_EVENT_FINGER_DOWN)
-                            callbacks.call(callbacks.touchpressed, "touchpressed", args, 3);
+                            game->callbacks->call(game->callbacks->touchpressed, "touchpressed", args, 3);
                         else if (event.type == SDL_EVENT_FINGER_UP)
-                            callbacks.call(callbacks.touchreleased, "touchreleased", args, 3);
+                            game->callbacks->call(game->callbacks->touchreleased, "touchreleased", args, 3);
                         else
-                            callbacks.call(callbacks.touchmoved, "touchmoved", args, 3);
+                            game->callbacks->call(game->callbacks->touchmoved, "touchmoved", args, 3);
                     }
                     if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
                     {
                         window->onSizeChanged(event.window.data1, event.window.data2);
                         float size[] = {static_cast<float>(graphics->getWidth()),
                                         static_cast<float>(graphics->getHeight())};
-                        auto dimensions = scua_vec(partition.get(), size, 2);
-                        callbacks.call(callbacks.resize, "resize", &dimensions, 1);
+                        auto dimensions = scua_vec(game->partition.get(), size, 2);
+                        game->callbacks->call(game->callbacks->resize, "resize", &dimensions, 1);
                     }
                 }
                 std::vector<std::pair<scua_Handle, scua_Handle>> queued;
-                queued.swap(host.pendingEvents);
+                queued.swap(game->host.pendingEvents);
                 struct UnpinEvents
                 {
                     scua_partition *p;
@@ -634,13 +695,13 @@ int main(int argc, char **argv)
                             scua_unpin_global(p, e.second);
                         }
                     }
-                } unpinEvents{partition.get(), queued};
+                } unpinEvents{game->partition.get(), queued};
                 for (auto &item : queued)
                 {
                     scua_Handle args[] = {item.first, item.second};
-                    callbacks.call(callbacks.event, "event", args, 2);
+                    game->callbacks->call(game->callbacks->event, "event", args, 2);
                 }
-                if (host.quitting)
+                if (game->host.quitting)
                     break;
                 uint64_t now = SDL_GetPerformanceCounter();
                 double dt =
@@ -648,22 +709,22 @@ int main(int argc, char **argv)
                         ? options.fixedDt
                         : std::min(0.25, static_cast<double>(now - previous) / SDL_GetPerformanceFrequency());
                 previous = now;
-                host.delta = dt;
-                host.elapsed += dt;
-                ++host.frameCount;
-                host.averageDelta = host.elapsed / host.frameCount;
-                auto delta = scua_num(partition.get(), dt);
-                callbacks.call(callbacks.update, "update", &delta, 1);
-                if (host.quitting)
+                game->host.delta = dt;
+                game->host.elapsed += dt;
+                ++game->host.frameCount;
+                game->host.averageDelta = game->host.elapsed / game->host.frameCount;
+                auto delta = scua_num(game->partition.get(), dt);
+                game->callbacks->call(game->callbacks->update, "update", &delta, 1);
+                if (game->host.quitting)
                     break;
                 graphics->origin();
                 const auto background = graphics->getBackgroundColor();
                 graphics->clear(love::ColorD(background.r, background.g, background.b, background.a),
                                 love::OptionalInt(0), love::OptionalDouble(1));
                 graphics->setColor(love::Colorf(1, 1, 1, 1));
-                host.drawing = true;
-                callbacks.call(callbacks.draw, "draw");
-                host.drawing = false;
+                game->host.drawing = true;
+                game->callbacks->call(game->callbacks->draw, "draw");
+                game->host.drawing = false;
                 if (!options.screenshot.empty() && frames + 1 == options.frames)
                 {
                     love::graphics::Graphics::ScreenshotInfo capture;
@@ -675,23 +736,23 @@ int main(int argc, char **argv)
                 ++frames;
                 // GPU memory does not itself create arena pressure. Collect dropped
                 // resource wrappers once per 60 frames, and drain after presentation.
-                if (frames % 60 == 0 && scua_userdata_collect(partition.get()) != SCUA_OK)
+                if (frames % 60 == 0 && scua_userdata_collect(game->partition.get()) != SCUA_OK)
                     throw std::runtime_error("could not collect managed resources");
                 size_t destroyed = 0;
-                if (scua_userdata_drain(partition.get(), 64, &destroyed) != SCUA_OK)
+                if (scua_userdata_drain(game->partition.get(), 64, &destroyed) != SCUA_OK)
                     throw std::runtime_error("could not drain managed resources");
             }
             {
-                Scope scope(partition.get());
+                Scope scope(game->partition.get());
                 if (verify)
                 {
                     if (frames != options.frames)
                         throw std::runtime_error("game quit before requested frame count");
-                    if (!callbacks.present(callbacks.verify))
+                    if (!game->callbacks->present(game->callbacks->verify))
                         throw std::runtime_error("--verify requires fn verify()");
-                    callbacks.call(callbacks.verify, "verify");
+                    game->callbacks->call(game->callbacks->verify, "verify");
                 }
-                callbacks.call(callbacks.quit, "quit");
+                game->callbacks->call(game->callbacks->quit, "quit");
             }
             if (!screenshot.error.empty())
                 throw std::runtime_error(screenshot.error);
@@ -700,10 +761,10 @@ int main(int argc, char **argv)
             std::cout << "Rendered " << frames << " frames using " << options.renderer << " and "
                       << scua_version_string() << '\n';
         } // Release cached callbacks before checked partition teardown.
-        if (verify && host.imagesCreated)
-            std::cout << "Resources before teardown: " << host.liveImages << " images, " << host.liveQuads
-                      << " quads\n";
-        partition.reset();
+        if (verify && game->host.imagesCreated)
+            std::cout << "Resources before teardown: " << game->host.liveImages << " images, "
+                      << game->host.liveQuads << " quads\n";
+        game.reset();
         return 0;
     }
     catch (const std::exception &error)

@@ -42,7 +42,7 @@ set(scua_thread_support
     ../src/modules/thread/sdl/Thread.cpp)
 add_executable(lovescua
     main.cpp bindings.cpp graphics.cpp platform.cpp objects.cpp math.cpp
-    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp
+    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp
     ${scua_thread_support}
     ../src/modules/video/VideoStream.cpp
     ../src/modules/video/theora/OggDemuxer.cpp
@@ -82,6 +82,10 @@ if(BUILD_TESTING)
     get_target_property(scua_host_libraries lovescua LINK_LIBRARIES)
     target_link_libraries(scua_test_input PRIVATE ${scua_host_libraries})
     add_dependencies(lovescua scua_test_input)
+    add_executable(scua_test_dialogs test_dialogs.cpp ${scua_thread_support})
+    target_link_libraries(scua_test_dialogs PRIVATE ${scua_host_libraries})
+    add_test(NAME scua_dialogs COMMAND scua_test_dialogs)
+    set_tests_properties(scua_dialogs PROPERTIES TIMEOUT 15 LABELS "no-window")
     add_test(NAME scua_virtual_input COMMAND scua_test_input)
     set_tests_properties(scua_virtual_input PROPERTIES TIMEOUT 30)
     add_test(NAME scua_bounce COMMAND lovescua --no-input --verify --frames 120 --fixed-dt 0.016666666666666666
@@ -111,6 +115,13 @@ if(BUILD_TESTING)
             set_tests_properties(scua_modplug_no_files PROPERTIES TIMEOUT 15 LABELS "no-window")
         endif()
     endif()
+    add_test(NAME scua_cpu_images COMMAND lovescua --headless --verify --frames 1 "${love_SOURCE_DIR}/examples/cpu_images")
+    add_test(NAME scua_state_reload COMMAND lovescua --headless --verify --frames 3 --save-dir "${CMAKE_BINARY_DIR}/test-state-saves" "${love_SOURCE_DIR}/examples/state_reload")
+    add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
+    set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
+    add_test(NAME scua_compatibility_audit COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/compatibility_audit.py" --check)
+    set_tests_properties(scua_compatibility_audit PROPERTIES TIMEOUT 15 LABELS "no-window")
     add_test(NAME scua_script_check COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_check.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_script_check PROPERTIES TIMEOUT 45 LABELS "no-window")
@@ -148,7 +159,7 @@ if(BUILD_TESTING)
         add_test(NAME scua_features_${renderer} COMMAND lovescua --no-input --renderer ${renderer} --verify
             --frames 3 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/features")
         set_tests_properties(scua_features_${renderer} PROPERTIES TIMEOUT 30)
-        foreach(example math particles events mesh rendering instancing compute textures fonts_particles physics_controls)
+        foreach(example math particles events mesh rendering instancing compute textures fonts_particles physics_controls platform)
             add_test(NAME scua_${example}_${renderer} COMMAND lovescua --no-input --renderer ${renderer} --verify
                 --frames 3 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/${example}")
             set_tests_properties(scua_${example}_${renderer} PROPERTIES TIMEOUT 30)

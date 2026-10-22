@@ -54,3 +54,51 @@ OpenAL’s silent backend. Renderer capabilities still apply: macOS OpenGL does 
 support the tested Metal compute, indirect drawing and native-view paths. The
 texture scene checks supported fallbacks and explicit rejection. Full LÖVE parity
 remains separate work, listed in SCUA.md.
+
+# Remaining macOS conversion batch (2026-10-22)
+
+Authorized scope: complete remaining image APIs, platform/window operations and
+sensor callbacks, logical game-state persistence, transactional hot reload,
+stronger SCUA resource types, and a method-level upstream compatibility audit.
+Concurrency awaits the SCUA team. Windows/Linux and distribution work are excluded.
+Run only affected graphical scenes sequentially at batch end; use no-window checks
+for codec/state/type validation. Hardware-only observations must be recorded as
+observed, unavailable or requiring a manual check, never inferred from mocks.
+
+Delivered:
+- Concrete CPU formats/raw buffers, HDR pixels, conversion, overlap-safe paste,
+  staged map callbacks, cube/volume extraction, compressed clones and native encoders.
+- Full native window settings, display/platform metadata, clipboard/URL and IME APIs,
+  asynchronous dialog inboxes and selected-file/folder read/write operations.
+- Sensor callbacks, richer controller records/mappings and native event checks.
+- Versioned logical JSON state, atomic saves and migration; headless execution;
+  source/import watch and staged partition replacement with snapshot/restore.
+- Optional enum-branded resource records, checked native kinds and close operations.
+- Mesh/batch metadata/ranges/layers/attributes, pipeline/default sampler state,
+  projection/discard/flush/current-object APIs, full curve/transform operations and
+  spring parameter conversion identified by the upstream audit.
+- Generated declarations: 700 functions across 19 modules. The method migration
+  audit enumerates 1,090 Lua registrations from 73 files with explicit destinations,
+  record families, language/host replacements, exclusions and pending concurrency.
+  Family mappings are porting guidance, not certification of every Lua overload.
+
+Validation:
+- Both audio-enabled and audio-disabled builds compile; focused CPU/image/state,
+  lifecycle/type, virtual input/sensor, dialog, checker and audit tests pass.
+- Three short sequential graphical checks passed: platform on Metal/OpenGL and
+  the existing Metal texture scene. No full graphical suite was run.
+- Fixed a lifecycle test race using atomic replacement and an explicit handshake;
+  pinned snapshot/restore callbacks; three repeated lifecycle runs pass in each build.
+- Live CoreAudio: four outputs/four recording devices; current output reopened
+  silently; one HRTF filter reported, disabled. No controllers/sensors attached.
+  Capture, listening and real chooser interaction remain manual checks.
+
+Details and limits are in SCUA_RUNTIME.md and SCUA_VALIDATION.md. Reload preserves
+VM/resource and saved graphics/window state on failure, not external filesystem
+writes or arbitrary OS effects; use reloaded() for external actions. Typed resources
+are optional SCUA records around raw userdata, not nominal native declarations.
+Windows/Linux, distribution and released-0.38 concurrency remain excluded/pending.
+
+SCUA-team update: 0.38 frame control and multicore are implemented in unmerged PRs,
+with the multicore C ABI moving to 3. They are not released. This batch remains
+on the installed 0.37.0 ABI 2 SDK and does not introduce concurrency code.

@@ -9,10 +9,18 @@ fn set_key_repeat(enabled: bool) end
 -- has key repeat.
 fn has_key_repeat() -> bool end
 -- set text input.
-fn set_text_input(enabled: bool) end
+fn set_text_input(enabled: bool, area: vec4 = nil, cursor: int = 0) end
 -- has text input.
 fn has_text_input() -> bool end
 -- has screen keyboard.
 fn has_screen_keyboard() -> bool end
 -- is modifier active.
 fn is_modifier_active(modifier: string) -> bool end
+-- Poll a physical key position independently of keyboard layout.
+fn is_scancode_down(scancode: string) -> bool end
+-- Map an SDL key name to a scancode name.
+fn scancode_from_key(key: string) -> string end
+-- Map a scancode name to a key name.
+fn key_from_scancode(scancode: string) -> string end
+-- Check native on-screen keyboard visibility.
+fn screen_keyboard_visible() -> bool end

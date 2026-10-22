@@ -22,4 +22,4 @@ print("\nThe SCUA `filesystem` facade adds resource and opt-in save operations o
 for path, signatures in rows:
     print(f"## {path.stem}\n\n```scua")
     print("\n".join(signatures))
-    print("```\n")
+    print("```" if path == rows[-1][0] else "```\n")

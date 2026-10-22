@@ -2794,6 +2794,17 @@ void Graphics::push(StackType type)
 	stackTypeStack.push_back(type);
 }
 
+// SCUA fork: finish an all-state staging scope without restoring its saved state.
+void Graphics::commitPushedState()
+{
+    if (stackTypeStack.empty() || stackTypeStack.back() != STACK_ALL)
+        throw Exception("Committing a staged state requires an all-state push.");
+    states.erase(states.end()-2);
+    transformStack.erase(transformStack.end()-2);
+    pixelScaleStack.erase(pixelScaleStack.end()-2);
+    stackTypeStack.pop_back();
+}
+
 void Graphics::pop()
 {
 	if (stackTypeStack.size() < 1)

@@ -444,3 +444,45 @@ fn texture_readback(texture: any) -> any end
 fn texture_set_wrap(texture: any, horizontal: string, vertical: string) end
 -- quad set viewport.
 fn quad_set_viewport(quad: any, position: vec2, size: vec2) end
+-- Attach a retained vertex buffer member; supply at least four vertices per sprite.
+fn batch_attach_attribute(batch: any, name: string, buffer: any) end
+-- Get blend/stencil/color mask, cull/winding and renderer policy.
+fn pipeline_state() -> any end
+-- Set checked cull/winding and custom blend state records.
+fn configure_pipeline(settings: any) end
+-- Get default texture min/mag/mipmap filters, anisotropy and LOD bias.
+fn default_sampler() -> any end
+-- Set default texture filtering for newly created textures.
+fn set_default_sampler(settings: any) end
+-- Get a retained custom shader, or nil for the engine default.
+fn current_shader() -> any end
+-- Get shader debug label.
+fn shader_debug_name(shader: any) -> string end
+-- Flush batched drawing during draw().
+fn flush() end
+-- Set a custom projection matrix during draw().
+fn set_projection(transform: any) end
+-- Restore the engine projection during draw().
+fn reset_projection() end
+-- Discard selected render attachments during draw(); their contents become undefined.
+fn discard(colors: any, depth_stencil: bool) end
+-- Get a retained active color target, -1 for depth/stencil, or nil. Pass index explicitly.
+fn render_target(index: int) -> any end
+-- Get vertex format, enabled/attached attributes, draw mode/range and vertex map.
+fn mesh_info(mesh: any) -> any end
+-- Set a checked draw mode/range; clear_range resets the range.
+fn mesh_configure(mesh: any, settings: any) end
+-- Get a retained texture or nil.
+fn mesh_texture(mesh: any) -> any end
+-- Get one CPU-owned vertex in its documented native format.
+fn mesh_vertex_bytes(mesh: any, index: int) -> bytes end
+-- Get count/capacity, current tint and draw range.
+fn batch_info(batch: any) -> any end
+-- Set a zero-based draw range, or reset it by omitting both bounds.
+fn batch_set_range(batch: any, start: int = nil, count: int = nil) end
+-- Get a retained batch texture.
+fn batch_texture(batch: any) -> any end
+-- Replace the retained batch texture.
+fn batch_set_texture(batch: any, texture: any) end
+-- Append or replace an array-texture sprite.
+fn batch_layer(batch: any, layer: int, position: vec2, rotation: float = 0, scale: vec2 = nil, index: int = nil) -> int end

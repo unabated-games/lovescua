@@ -1665,6 +1665,64 @@ void world_raycast_all(scua_ctx *ctx)
     scua_return_value(ctx, results);
 }
 
+// Spring conversion uses reduced mass/inertia, matching the bundled Box2D.
+// Angular coefficients use pixel-squared units, like joint_state/configure.
+void spring_parameters(scua_ctx *c)
+{
+    if (scua_arg_count(c) < 2 || scua_arg_count(c) > 3)
+        throw std::invalid_argument("expected body, settings and optional second body");
+    auto a = body(c);
+    auto b = supplied(c, 2) ? body(c, 2) : nullptr;
+    if (!a || (supplied(c, 2) && !b))
+        return;
+    if (b && a->owner != b->owner)
+        throw std::invalid_argument("spring bodies must share a world");
+    Options o(c, 1);
+    bool angular = o.boolean("angular", false);
+    double meter = a->owner->meter;
+    double ma = angular ? a->body->GetInertia() * meter * meter : a->body->GetMass();
+    double mb = b ? (angular ? b->body->GetInertia() * meter * meter : b->body->GetMass()) : 0;
+    double mass = ma > 0 && mb > 0 ? ma * mb / (ma + mb) : (ma > 0 ? ma : mb);
+    double frequency = 0, ratio = 0, stiffness = 0, damping = 0;
+    bool inverse = o.has("stiffness") || o.has("damping");
+    if (inverse && (o.has("frequency") || o.has("damping_ratio")))
+        throw std::invalid_argument("choose frequency/ratio or stiffness/damping");
+    if (inverse)
+    {
+        stiffness = o.num("stiffness", 0);
+        damping = o.num("damping", 0);
+        if (stiffness < 0 || damping < 0)
+            throw std::invalid_argument("spring coefficients must be nonnegative");
+        if (mass > 0 && stiffness > 0)
+        {
+            double omega = std::sqrt(stiffness / mass);
+            frequency = omega / (2 * b2_pi);
+            ratio = damping / (2 * mass * omega);
+        }
+    }
+    else
+    {
+        frequency = o.num("frequency", 0);
+        ratio = o.num("damping_ratio", 0);
+        if (frequency < 0 || frequency > 100000 || ratio < 0 || ratio > 100000)
+            throw std::invalid_argument("spring frequency/ratio outside supported range");
+        double omega = 2 * b2_pi * frequency;
+        stiffness = mass * omega * omega;
+        damping = 2 * mass * ratio * omega;
+    }
+    if (!std::isfinite(stiffness) || !std::isfinite(damping) || !std::isfinite(frequency) ||
+        !std::isfinite(ratio) || stiffness > std::numeric_limits<float>::max() ||
+        damping > std::numeric_limits<float>::max())
+        throw std::invalid_argument("spring parameters overflow");
+    Record r(c);
+    r.num("frequency", frequency);
+    r.num("damping_ratio", ratio);
+    r.num("stiffness", stiffness);
+    r.num("damping", damping);
+    r.boolean("angular", angular);
+    r.done();
+}
+
 #include "physics_extra.inc"
 #include "physics_joints.inc"
 } // namespace
@@ -1677,6 +1735,10 @@ void registerPhysics(scua_partition *p, Host &state)
     registerFunctions(
         p, state,
         {
+            {"love_physics", "spring_parameters", guarded<spring_parameters>,
+             "spring_parameters(body: any, settings: any, other_body: any = nil) -> any",
+             "Convert frequency/damping_ratio to stiffness/damping, or the inverse; angular=true uses "
+             "pixel-squared inertia."},
             {"love_physics", "new_prismatic_joint", guarded<new_prismatic_joint>,
              "new_prismatic_joint(body_a: any, body_b: any, anchor: vec2, axis: vec2) -> any",
              "new prismatic joint. Angles use radians and linear quantities use drawing pixels."},

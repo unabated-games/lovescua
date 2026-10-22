@@ -6,3 +6,7 @@
 fn quit() end
 -- Queue a custom event for event(name, payload) on the next frame.
 fn post(name: string, payload: any) end
+-- Request a staged script reload at the next frame boundary.
+fn reload() end
+-- Read reload request/error state.
+fn reload_status() -> any end

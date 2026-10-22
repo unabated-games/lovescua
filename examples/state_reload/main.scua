@@ -1,0 +1,54 @@
+import game_state as state
+import love
+record Save { score: int, label: string }
+let ticks=0
+let score=0
+let reloads=0
+fn must(result)
+  match result
+    Ok(data) -> return data
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+fn check_persistence()
+  let save: Save={score=42,label="SCUA"}
+  must(state.save("state.json",save,1))
+  assert(must(state.load("state.json",1)).score==42)
+  for malformed in ["null","[]","17","{}","{\"format\":\"lovescua-state\",\"version\":0}","not json"] do
+    match state.decode(malformed,1)
+      Error(_) -> nil
+      Ok(_) -> assert(false,"malformed state should return Error")
+    end
+  end
+  match state.save("invalid.json",love.image.new_data(1,1),1)
+    Error(_) -> nil
+    Ok(_) -> assert(false,"native resources must not be saved as game data")
+  end
+  let encoded=state.encode(save,1)
+  assert(must(state.decode(encoded,1)).label=="SCUA")
+  assert(must(state.decode(encoded,2,fn(old,from,to) return {score=old.score+1,label=old.label} end)).score==43)
+  match state.decode(encoded,2)
+    Error(_) -> nil
+    Ok(_) -> assert(false,"version mismatch should fail")
+  end
+end
+fn snapshot() -> string
+  return state.encode({ticks=ticks,score=score,reloads=reloads},1)
+end
+fn restore(encoded: string)
+  let saved=must(state.decode(encoded,1))
+  ticks=saved.ticks
+  score=saved.score
+  reloads=saved.reloads+1
+end
+fn update(dt: float)
+  ticks=ticks+1
+  score=score+10
+  if ticks==1 then love.event.reload() end
+end
+fn verify()
+  check_persistence()
+  assert(ticks==3 and score==30 and reloads==1,`ticks={ticks} score={score} reloads={reloads}`)
+  assert(love.event.reload_status().error=="")
+  print("PASS: logical saves, version migration and staged reload with restored state")
+end

@@ -156,10 +156,32 @@ void printf_text(scua_ctx *ctx)
 }
 void new_image_data(scua_ctx *ctx)
 {
-    arity(ctx, 2);
+    if (scua_arg_count(ctx) < 2 || scua_arg_count(ctx) > 4)
+        throw std::invalid_argument("new_data expects dimensions and optional format/raw bytes");
     int width = integer(ctx, 0, 1, 4096), height = integer(ctx, 1, 1, 4096);
-    returnObject(ctx, ObjectKind::ImageData,
-                 new love::image::ImageData(width, height, love::PIXELFORMAT_RGBA8_UNORM));
+    auto format = love::PIXELFORMAT_RGBA8_UNORM;
+    if (supplied(ctx, 2))
+    {
+        auto name = string(ctx, 2);
+        if (!love::getConstant(name.c_str(), format) || !love::image::ImageData::validPixelFormat(format))
+            throw std::invalid_argument("unsupported CPU pixel format");
+    }
+    if (love::getPixelFormatBlockSize(format) == 0)
+        throw std::invalid_argument("CPU images require a concrete pixel format");
+    size_t size = love::getPixelFormatBlockSize(format) * size_t(width) * height;
+    if (size > 64 * 1024 * 1024)
+        throw std::invalid_argument("CPU image limit is 64 MiB");
+    Owned<love::image::ImageData> data(new love::image::ImageData(width, height, format));
+    if (supplied(ctx, 3))
+    {
+        const uint8_t *raw;
+        size_t n;
+        if (scua_arg_bytes(ctx, 3, &raw, &n) != SCUA_OK || n != size)
+            throw std::invalid_argument(
+                "raw pixel byte size must exactly match the image format and dimensions");
+        std::memcpy(data->getData(), raw, n);
+    }
+    returnObject(ctx, ObjectKind::ImageData, data.release());
 }
 void decode_image_data(scua_ctx *ctx)
 {
@@ -204,8 +226,6 @@ void set_pixel(scua_ctx *ctx)
     if (!data)
         return;
     int x = integer(ctx, 1, 0, data->getWidth() - 1), y = integer(ctx, 2, 0, data->getHeight() - 1);
-    for (float &v : c)
-        v = std::clamp(v, 0.0f, 1.0f);
     data->setPixel(x, y, {c[0], c[1], c[2], c[3]});
 }
 void clone_image_data(scua_ctx *ctx)
@@ -213,7 +233,11 @@ void clone_image_data(scua_ctx *ctx)
     arity(ctx, 1);
     auto data = image(ctx);
     if (data)
-        returnObject(ctx, ObjectKind::ImageData, data->clone());
+    {
+        auto copy = data->clone();
+        copy->setLinear(data->isLinear());
+        returnObject(ctx, ObjectKind::ImageData, copy);
+    }
 }
 void encode_png(scua_ctx *ctx)
 {
@@ -586,8 +610,9 @@ void registerObjects(scua_partition *p, Host &state)
             {"love_graphics", "printf", guarded<printf_text>,
              "printf(text: string, position: vec2, width: float, align: string)",
              "Draw wrapped and aligned text."},
-            {"love_image", "new_data", guarded<new_image_data>, "new_data(width: int, height: int) -> any",
-             "Create transparent RGBA8 image data."},
+            {"love_image", "new_data", guarded<new_image_data>,
+             "new_data(width: int, height: int, format: string = \"rgba8\", raw: bytes = nil) -> any",
+             "Create zeroed CPU image data in a checked native format, optionally from exact raw bytes."},
             {"love_image", "decode", guarded<decode_image_data>, "decode(encoded: bytes) -> any",
              "Decode CPU image data."},
             {"love_image", "dimensions", guarded<image_data_dimensions>, "dimensions(data: any) -> vec2",

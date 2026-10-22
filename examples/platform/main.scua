@@ -1,0 +1,153 @@
+import love
+import handles
+let ticks=0
+let request=nil
+let request_kind=""
+let message="O: open file   S: save PNG   M: message box   C: copy status   U: project URL"
+let sensor="No sensor event received"
+let image=nil
+let reloads=0
+fn fails(operation)
+  match pcall(operation)
+    Error(_) -> nil
+    Ok(_) -> assert(false,"operation should fail")
+  end
+end
+fn load()
+  love.window.set_title("SCUA / desktop settings, dialogs, clipboard and sensor callbacks")
+  let mode=love.window.mode()
+  love.window.configure({width=mode.width,height=mode.height,resizable=true,min_width=64,min_height=64})
+  let current=love.window.mode()
+  assert(current.resizable and current.min_width==64 and current.min_height==64)
+  assert(current.width>0 and current.height>0 and current.display>=0)
+  assert(love.window.desktop_dimensions().x>0)
+  love.window.fullscreen_modes()
+  love.window.display_orientation()
+  love.window.system_theme()
+  love.window.high_dpi_allowed()
+  love.system.preferred_locales()
+  assert(love.keyboard.scancode_from_key("Space")=="Space")
+  assert(love.keyboard.key_from_scancode("Space")=="Space")
+  love.keyboard.screen_keyboard_visible()
+  assert(love.mouse.is_cursor_supported())
+  love.mouse.global_position()
+  let pipeline=love.graphics.pipeline_state()
+  love.graphics.configure_pipeline({cull="none",winding="ccw",blend=pipeline.blend})
+  assert(love.graphics.pipeline_state().winding=="ccw")
+  fails(fn() love.graphics.configure_pipeline({cull="back",blend={src_rgb="invalid"}}) end)
+  assert(love.graphics.pipeline_state().cull=="none")
+  let sampler=love.graphics.default_sampler()
+  love.graphics.set_default_sampler({min_filter="nearest",mag_filter="nearest",mipmap_filter="none"})
+  assert(love.graphics.default_sampler().min_filter=="nearest")
+  love.graphics.set_default_sampler(sampler)
+  assert(love.graphics.current_shader()==nil)
+  assert(love.graphics.render_target(0)==nil)
+  let data=love.image.new_data(8,8)
+  love.image.map_pixels(data,fn(x,y,color) return vec4(x/7,y/7,0.6,1) end)
+  image=handles.texture(love.graphics.new_image_from_data(data))
+  let array=love.graphics.new_texture({type="array"},[data,data])
+  let batch=love.graphics.new_sprite_batch(array,4)
+  assert(love.graphics.batch_layer(batch,1,vec2(0,0))==0)
+  love.graphics.batch_layer(batch,0,vec2(1,1),0,vec2(1,1),0)
+  love.graphics.batch_set_range(batch,0,1)
+  assert(love.graphics.batch_info(batch).count==1)
+  assert(love.graphics.texture_info(love.graphics.batch_texture(batch)).layers==2)
+  love.graphics.batch_set_range(batch)
+  love.graphics.batch_set_texture(batch,array)
+  let attributes=love.graphics.new_buffer([{name="CustomColor",format="floatvec4"}],4,["vertex"])
+  love.graphics.buffer_set_data(attributes,[vec4(1,0,0,1),vec4(0,1,0,1),vec4(0,0,1,1),vec4(1,1,1,1)])
+  love.graphics.batch_attach_attribute(batch,"CustomColor",attributes)
+  love.object.close(attributes)
+  let vertices=[{position=vec2(0,0),uv=vec2(0,0),color=vec4(1,1,1,1)},{position=vec2(1,0),uv=vec2(1,0),color=vec4(1,1,1,1)},{position=vec2(0,1),uv=vec2(0,1),color=vec4(1,1,1,1)}]
+  let mesh=love.graphics.new_mesh(vertices,"triangles")
+  love.graphics.mesh_set_texture(mesh,image.raw)
+  love.graphics.mesh_configure(mesh,{mode="triangles",range=vec2(0,3)})
+  assert(love.graphics.mesh_info(mesh).count==3)
+  assert(love.graphics.mesh_vertex_bytes(mesh,0).len()>0)
+  assert(love.graphics.texture_info(love.graphics.mesh_texture(mesh)).width==8)
+  love.graphics.mesh_configure(mesh,{clear_range=true})
+  love.graphics.release(data)
+  fails(fn() love.window.configure({width=32}) end)
+  assert(love.window.mode().width==current.width,"invalid settings changed nothing")
+  fails(fn() love.system.open_url("file:///etc/passwd") end)
+end
+fn snapshot() -> string return tostring(ticks) end
+fn restore(encoded: string) ticks=tonumber(encoded) end
+fn reloaded() reloads=reloads+1 end
+fn update(dt: float)
+  ticks=ticks+1
+  if ticks==1 then love.event.reload() end
+  if request!=nil then
+    let result=love.window.poll_file_dialog(request)
+    if result!=nil then
+      if result.failed then message=result.error
+      elseif result.cancelled then message="Dialog cancelled"
+      else
+        let operation=pcall(fn()
+          if request_kind=="save" then
+            let pixels=love.graphics.texture_read(image.raw)
+            love.window.write_selected_file(request,love.image.encode_png(pixels))
+            love.graphics.release(pixels)
+            message="Saved the selected PNG file"
+          else
+            let pixels=love.image.decode(love.window.read_selected_file(request,0))
+            let replacement=handles.texture(love.graphics.new_image_from_data(pixels))
+            handles.close(image)
+            image=replacement
+            love.graphics.release(pixels)
+            message="Loaded the selected image"
+          end
+        end)
+        match operation
+          Ok(_) -> nil
+          Error(reason) -> message=tostring(reason)
+        end
+      end
+      love.window.release_file_dialog(request)
+      request=nil
+    end
+  end
+end
+fn keypressed(key: string,repeat: bool)
+  if key=="o" then request_kind="open" request=love.window.show_file_dialog("open",{multiple=true,filters=[{name="Images",pattern="png;jpg;qoi;exr"}]}) end
+  if key=="s" then request_kind="save" request=love.window.show_file_dialog("save",{default_name="image.png",filters=[{name="PNG image",pattern="png"}]}) end
+  if key=="m" then love.window.show_message_box("LoveSCUA","Native dialogs are available.",{buttons=["OK","Cancel"],enter=0,escape=1}) end
+  if key=="c" then love.system.set_clipboard_text(message) end
+  if key=="u" then love.system.open_url("https://github.com/unabated-games/lovescua") end
+  if key=="r" then love.event.reload() end
+end
+fn sensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`{kind}: {value} at {time}s` end
+fn gamepadsensorupdated(id: int,kind: string,value: vec3,time: float) sensor=`Gamepad {id} {kind}: {value}` end
+fn draw()
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.print("Desktop platform API / R reloads this game",vec2(30,30))
+  love.graphics.print(message,vec2(30,80))
+  love.graphics.print(sensor,vec2(30,130))
+  love.graphics.draw(image.raw,vec2(30,200),0,vec2(24,24))
+  love.graphics.flush()
+  let projection=love.math.new_transform()
+  love.graphics.set_projection(projection)
+  love.graphics.reset_projection()
+  love.object.close(projection)
+end
+fn verify()
+  let icon_data=love.image.new_data(8,8)
+  love.window.set_icon(icon_data)
+  let icon=love.window.icon()
+  assert(icon!=nil)
+  love.graphics.release(icon)
+  love.graphics.release(icon_data)
+  -- Round-trip and restore immediately; never log the user's clipboard content.
+  let previous=love.system.clipboard_text()
+  let roundtrip=pcall(fn()
+    love.system.set_clipboard_text("LoveSCUA clipboard verification")
+    return love.system.clipboard_text()=="LoveSCUA clipboard verification"
+  end)
+  love.system.set_clipboard_text(previous)
+  match roundtrip
+    Ok(ok) -> assert(ok,"clipboard roundtrip")
+    Error(reason) -> assert(false,tostring(reason))
+  end
+  assert(ticks==3 and reloads==1,"graphical reload restored state and committed new resources")
+  print("PASS: display settings, clipboard restoration, key mapping, platform queries and graphical reload")
+end

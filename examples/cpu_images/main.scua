@@ -1,0 +1,111 @@
+import love
+import handles
+import bytes
+let checks=0
+fn fails(operation)
+  match pcall(operation)
+    Error(_) -> checks=checks+1
+    Ok(_) -> assert(false,"operation should fail")
+  end
+end
+fn read_red(data: handles.ImageData) -> float
+  return love.image.get_pixel(data.raw,0,0).x
+end
+fn load()
+  let a=love.math.new_transform()
+  love.math.transform_configure(a,{position=vec2(3,4),scale=vec2(2,2)})
+  assert(love.math.transform_is_affine(a))
+  assert(love.math.transform_point(a,vec2(1,1))==vec2(5,6))
+  let inverse=love.math.new_transform()
+  love.math.transform_inverse_of(inverse,a)
+  assert(love.math.transform_point(inverse,vec2(5,6))==vec2(1,1))
+  love.object.close(a)
+  love.object.close(inverse)
+  let world=love.physics.new_world(vec2(0,0))
+  let body=love.physics.new_body(world,vec2(0,0),"dynamic")
+  let collider=love.physics.new_circle(body,10,1)
+  for angular in [false,true] do
+    let spring=love.physics.spring_parameters(body,{frequency=4,damping_ratio=0.7,angular=angular})
+    let reverse=love.physics.spring_parameters(body,{stiffness=spring.stiffness,damping=spring.damping,angular=angular})
+    assert(abs(reverse.frequency-4)<0.0001 and abs(reverse.damping_ratio-0.7)<0.0001)
+    assert(spring.stiffness>0)
+  end
+  let other=love.physics.new_body(world,vec2(20,0),"dynamic")
+  love.physics.new_circle(other,10,1)
+  let single=love.physics.spring_parameters(body,{frequency=4,damping_ratio=0.7})
+  let pair=love.physics.spring_parameters(body,{frequency=4,damping_ratio=0.7},other)
+  assert(abs(pair.stiffness*2-single.stiffness)<0.0001)
+  fails(fn() love.physics.spring_parameters(body,{frequency=-1}) end)
+  fails(fn() love.physics.spring_parameters(body,{frequency=1,stiffness=1}) end)
+  love.physics.world_destroy(world)
+  let formats=love.image.formats()
+  assert(formats.contains("rgba8") and formats.contains("rgba32f") and formats.contains("rgb565"))
+  for format in formats do
+    let data=love.image.new_data(3,2,format)
+    if love.image.info(data).pixel_access then love.image.set_pixel(data,1,1,vec4(0.25,0.5,0.75,1)) end
+    let info=love.image.info(data)
+    assert(info.format==format and info.size==3*2*info.pixel_size)
+    let roundtrip=love.image.new_data(3,2,format,love.image.bytes(data))
+    assert(love.image.bytes(roundtrip)==love.image.bytes(data),`raw {format}`)
+    love.image.set_linear(data,true)
+    if info.pixel_access then
+      let converted=love.image.convert(data,"rgba8")
+      assert(love.image.info(converted).linear)
+    end
+  end
+  let curve=love.math.new_curve([vec2(0,0),vec2(1,2),vec2(2,0)])
+  assert(love.math.curve_count(curve)==3)
+  assert(love.math.curve_degree(love.math.curve_derivative(curve))==1)
+  love.math.curve_insert(curve,1,vec2(0.5,1))
+  love.math.curve_remove(curve,1)
+  love.math.curve_rotate(curve,0.5,vec2(0,0))
+  love.math.curve_scale(curve,2,vec2(0,0))
+  assert(love.math.curve_render_segment(curve,0.2,0.8,3).len()>1)
+  assert(love.math.random_seed(love.math.new_random(42)).low==42)
+  let transform=love.math.new_transform()
+  let matrix=love.math.transform_matrix(transform)
+  matrix[3]=12
+  matrix[7]=20
+  love.math.transform_set_matrix(transform,matrix)
+  assert((love.math.transform_point(transform,vec2(0,0))-vec2(12,20)).length()<0.001)
+  let data=love.image.new_data(4,3)
+  love.image.set_pixel(data,0,0,vec4(1,0,0,1))
+  love.image.paste(data,data,1,0,0,0,3,1)
+  assert(love.image.get_pixel(data,1,0).x==1 and love.image.get_pixel(data,2,0).x==0,"overlap snapshot")
+  love.image.map_pixels(data,fn(x,y,color) return vec4(x/3,y/2,0.25,1) end)
+  assert(love.image.get_pixel(data,3,2).x==1 and love.image.get_pixel(data,3,2).y==1)
+  let before=love.image.bytes(data)
+  fails(fn() love.image.map_pixels(data,fn(x,y,color) if x==2 then assert(false,"deliberate") end return vec4(0,0,0,0) end) end)
+  assert(love.image.bytes(data)==before,"failed map left pixels intact")
+  for format in ["png","tga","qoi"] do
+    assert(love.image.can_encode("rgba8",format))
+    let encoded=love.image.encode(data,format)
+    let decoded=love.image.decode(encoded)
+    assert(love.image.bytes(decoded)==before,`{format} roundtrip`)
+  end
+  let hdr=love.image.new_data(2,2,"rgba32f")
+  love.image.set_pixel(hdr,0,0,vec4(2.5,-0.5,4,1))
+  assert(love.image.get_pixel(hdr,0,0).x==2.5,"HDR values preserved")
+  if love.image.can_encode("rgba32f","exr") then
+    let decoded=love.image.decode(love.image.encode(hdr,"exr"))
+    assert(abs(love.image.get_pixel(decoded,0,0).x-2.5)<0.01,"EXR HDR roundtrip")
+  end
+  let strip=love.image.new_data(12,2)
+  for x in 0:12 do love.image.set_pixel(strip,x,0,vec4(x/12,0,0,1)) end
+  assert(love.image.cube_faces(strip).len()==6)
+  assert(love.image.volume_layers(strip).len()==6)
+  assert(not love.image.is_compressed(bytes.from_string("invalid")))
+  let typed=handles.image_data(data)
+  assert(read_red(typed)==0 and handles.is_open(typed))
+  fails(fn() handles.shader(data) end)
+  handles.close(typed)
+  assert(not handles.is_open(typed))
+  fails(fn() handles.image_data(data) end)
+  fails(fn() love.image.new_data(2,2,"rgba32f",bytes.from_string("bad")) end)
+  fails(fn() love.image.new_data(4096,4096,"rgba32f") end)
+  fails(fn() love.window.title() end)
+end
+fn verify()
+  assert(checks>=6,`checks={checks}`)
+  print("PASS: native CPU formats, raw pixels, HDR, encoders, copy/map, layers and branded resources")
+end

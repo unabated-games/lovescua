@@ -98,6 +98,11 @@ template <scua_fn Fn> void guarded(scua_ctx *ctx) noexcept
 {
     try
     {
+        if (host(ctx).staging && host(ctx).stagingUnsafe.count(&guarded<Fn>))
+            throw std::invalid_argument(
+                "external side effects are unavailable during reload staging; use reloaded()");
+        if (host(ctx).cpuOnly && !host(ctx).cpuAllowed.count(&guarded<Fn>))
+            throw std::invalid_argument("this engine operation is unavailable in --headless mode");
         if (host(ctx).checking)
             throw std::invalid_argument(
                 "--check does not execute engine functions; initialize resources in load()");
@@ -230,6 +235,26 @@ struct Binding
 inline void registerFunction(scua_partition *p, Host &state, const Binding &b)
 {
     auto key = std::string(b.module) + "." + b.name;
+    if (std::strcmp(b.module, "love_image") == 0 || std::strcmp(b.module, "love_math") == 0 ||
+        std::strcmp(b.module, "love_data") == 0 || std::strcmp(b.module, "love_physics") == 0 ||
+        std::strcmp(b.module, "love_sound") == 0 || std::strcmp(b.module, "love_audio") == 0 ||
+        std::strcmp(b.module, "love_timer") == 0 || key == "love_system.hardware_info" ||
+        key == "love_graphics.release" || key == "love_event.quit" || key == "love_event.reload" ||
+        key == "love_event.reload_status" || std::strcmp(b.module, "love_object") == 0)
+        state.cpuAllowed.insert(b.fn);
+    if (key == "love_system.set_clipboard_text" || key == "love_system.open_url" ||
+        key == "love_window.show_message_box" || key == "love_window.show_file_dialog" ||
+        key == "love_window.write_selected_file" || key == "love_window.set_icon" ||
+        key == "love_window.focus" || key == "love_window.minimize" || key == "love_window.maximize" ||
+        key == "love_window.restore" || key == "love_window.request_attention" ||
+        key == "love_window.set_display_sleep_enabled" ||
+        (std::strcmp(b.module, "love_audio") == 0 &&
+         !(std::string(b.name).rfind("new_", 0) == 0 || key == "love_audio.source_info")))
+        state.stagingUnsafe.insert(b.fn);
+    if ((std::strcmp(b.module, "love_mouse") == 0 || std::strcmp(b.module, "love_keyboard") == 0 ||
+         std::strcmp(b.module, "love_joystick") == 0 || std::strcmp(b.module, "love_sensor") == 0) &&
+        std::string(b.name).rfind("set_", 0) == 0)
+        state.stagingUnsafe.insert(b.fn);
     if (!state.registeredBindings.insert(key).second)
         throw std::runtime_error("duplicate native binding: " + key);
     if (scua_register_module_doc(p, b.module, b.name, b.fn, &state, b.signature, b.doc) != SCUA_OK)

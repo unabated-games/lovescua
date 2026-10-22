@@ -98,6 +98,8 @@ fn new_joint(kind: string, body_a: any, body_b: any, settings: any) -> any end
 fn joint_state(joint: any, dt: float = nil) -> any end
 -- Set family-specific joint properties after validating the entire record.
 fn joint_configure(joint: any, settings: any) end
+-- Convert frequency/damping_ratio to stiffness/damping, or the inverse; angular=true uses pixel-squared inertia.
+fn spring_parameters(body: any, settings: any, other_body: any = nil) -> any end
 -- new prismatic joint. Angles use radians and linear quantities use drawing pixels.
 fn new_prismatic_joint(body_a: any, body_b: any, anchor: vec2, axis: vec2) -> any end
 -- new wheel joint. Angles use radians and linear quantities use drawing pixels.

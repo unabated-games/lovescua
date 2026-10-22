@@ -1,4 +1,5 @@
 -- Familiar LÖVE namespaces backed directly by C++ natives in the SCUA host.
+import love_object
 import love_window
 import love_graphics
 import love_keyboard
@@ -17,6 +18,7 @@ import love_sensor
 import love_video
 
 return {
+  object = love_object,
   window = love_window,
   graphics = love_graphics,
   keyboard = love_keyboard,

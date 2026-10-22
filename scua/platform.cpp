@@ -271,6 +271,18 @@ void window_mode(scua_ctx *ctx)
     r.boolean("borderless", s.borderless);
     r.integer("vsync", s.vsync);
     r.integer("msaa", s.msaa);
+    r.boolean("stencil", s.stencil);
+    r.boolean("depth", s.depth);
+    r.integer("min_width", s.minwidth);
+    r.integer("min_height", s.minheight);
+    r.integer("display", s.displayindex);
+    r.boolean("centered", s.centered);
+    r.boolean("use_dpi_scale", s.usedpiscale);
+    r.num("refresh_rate", s.refreshrate);
+    r.integer("x", s.x);
+    r.integer("y", s.y);
+    r.str("fullscreen_type",
+          s.fstype == love::window::Window::FULLSCREEN_EXCLUSIVE ? "exclusive" : "desktop");
     r.done();
 }
 
@@ -373,13 +385,29 @@ void keyboard_has_key_repeat(scua_ctx *ctx)
 
 void keyboard_set_text_input(scua_ctx *ctx)
 {
-    arity(ctx, 1);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 3)
+        throw std::invalid_argument("set_text_input expects enabled and optional IME rectangle/cursor");
     bool enabled = boolean(ctx, 0);
+    SDL_Rect area{};
+    bool hasArea = supplied(ctx, 1);
+    if (hasArea)
+    {
+        float v[4];
+        vector(ctx, 1, v, 4);
+        for (float n : v)
+            if (std::abs(n) > 100000 || n != std::floor(n))
+                throw std::invalid_argument("IME rectangle needs bounded integer components");
+        if (v[2] < 0 || v[3] < 0)
+            throw std::invalid_argument("IME rectangle size must be nonnegative");
+        area = {int(v[0]), int(v[1]), int(v[2]), int(v[3])};
+    }
+    int cursor = supplied(ctx, 2) ? integer(ctx, 2, 0, 100000) : 0;
+    if (hasArea && !SDL_SetTextInputArea(window(ctx), &area, cursor))
+        throw std::runtime_error(SDL_GetError());
     bool ok = enabled ? SDL_StartTextInput(window(ctx)) : SDL_StopTextInput(window(ctx));
     if (!ok)
         throw std::runtime_error(SDL_GetError());
 }
-
 void keyboard_has_text_input(scua_ctx *ctx)
 {
     arity(ctx, 0);
@@ -593,7 +621,7 @@ void registerPlatform(scua_partition *p, Host &state)
             {"love_keyboard", "has_key_repeat", guarded<keyboard_has_key_repeat>, "has_key_repeat() -> bool",
              "has key repeat."},
             {"love_keyboard", "set_text_input", guarded<keyboard_set_text_input>,
-             "set_text_input(enabled: bool)", "set text input."},
+             "set_text_input(enabled: bool, area: vec4 = nil, cursor: int = 0)", "set text input."},
             {"love_keyboard", "has_text_input", guarded<keyboard_has_text_input>, "has_text_input() -> bool",
              "has text input."},
             {"love_keyboard", "has_screen_keyboard", guarded<keyboard_has_screen_keyboard>,

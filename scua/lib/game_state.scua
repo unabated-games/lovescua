@@ -1,0 +1,46 @@
+-- Logical game data only: native resources are rebuilt by load()/restore().
+import json
+import str
+import filesystem
+
+fn encode(data, version: int = 1) -> string
+  assert(version >= 1, "state version must be positive")
+  let encoded = json.encode({ format = "lovescua-state", version = version, data = data })
+  assert(encoded.len() <= 4194304, "logical state exceeds 4 MiB")
+  return encoded
+end
+
+fn decode(encoded: string, version: int = 1, migrate = nil)
+  return pcall(fn()
+    assert(encoded.len() <= 4194304, "logical state exceeds 4 MiB")
+    assert(version >= 1 and version == floor(version), "state version must be a positive integer")
+    match json.decode(encoded)
+      Error(reason) -> assert(false, tostring(reason))
+      Ok(envelope) -> do
+        assert(envelope.format == "lovescua-state", "unrecognized logical state format")
+        assert(envelope.version >= 1 and envelope.version == floor(envelope.version), "invalid saved version")
+        if envelope.version == version then return envelope.data end
+        assert(migrate != nil, "logical state version mismatch")
+        return migrate(envelope.data, envelope.version, version)
+      end
+    end
+  end)
+end
+
+fn save(path: string, data, version: int = 1)
+  match pcall(fn() return encode(data, version) end)
+    Error(reason) -> return Error(reason)
+    Ok(encoded) -> return filesystem.write_atomic(path, encoded)
+  end
+end
+
+fn load(path: string, version: int = 1, migrate = nil)
+  let source = path
+  if not str.starts_with(source, "user:") then source = "user:" .. source end
+  match filesystem.read_text(source)
+    Error(reason) -> return Error(reason)
+    Ok(encoded) -> return decode(encoded, version, migrate)
+  end
+end
+
+return { encode = encode, decode = decode, save = save, load = load }

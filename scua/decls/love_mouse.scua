@@ -32,3 +32,7 @@ fn set_cursor(cursor: any) end
 fn get_cursor() -> any end
 -- Get cursor kind and system name.
 fn cursor_info(cursor: any) -> any end
+-- Get desktop pointer coordinates; no-input mode returns zero.
+fn global_position() -> vec2 end
+-- The macOS host supports native cursors.
+fn is_cursor_supported() -> bool end

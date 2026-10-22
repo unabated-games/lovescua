@@ -885,6 +885,8 @@ public:
 	size_t getStackDepth() const;
 	void push(StackType type = STACK_TRANSFORM);
 	void pop();
+	// SCUA fork: commit a staged reload state while discarding its saved parent.
+	void commitPushedState();
 
 	const Matrix4 &getTransform() const;
 	const Matrix4 &getDeviceProjection() const;
