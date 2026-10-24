@@ -6,8 +6,12 @@
 #include <scua.h>
 #include <set>
 static_assert(SCUA_ABI_VERSION == 3, "SCUA ABI 3 is required");
-static_assert(SCUA_VERSION_MAJOR == 0 && SCUA_VERSION_MINOR == 38 && SCUA_VERSION_PATCH == 0,
-              "Build lovescua with the SCUA 0.38.0 SDK");
+static_assert(SCUA_VERSION_MAJOR == 0 && (SCUA_VERSION_MINOR == 38 || SCUA_VERSION_MINOR == 39) &&
+                  SCUA_VERSION_PATCH == 0,
+              "Build lovescua with the matching SCUA SDK (0.39 or the pinned preview)");
+#ifndef SCUA_FAULT_ERROR
+#error "SCUA embedding follow-ups are required; rebuild the SDK from the pinned source in SCUA_ACTORS.md"
+#endif
 #include "graphics/Graphics.h"
 #include "window/sdl/Window.h"
 

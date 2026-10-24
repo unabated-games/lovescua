@@ -6,7 +6,7 @@
 fn publish(id: int, snapshot: vec4) end
 -- Drain copied commands sorted by step/id in post_update; engine objects stay in the main script.
 fn commands() -> any end
--- Drain actor/task faults reported once; up to 64 retained faults.
+-- Drain actor/task/unhandled Error notifications reported once; up to 64 retained records.
 fn faults() -> any end
 -- Get frame budget, clock, worker statistics and fault totals.
 fn info() -> any end
@@ -16,5 +16,5 @@ fn set_paused(paused: bool) end
 fn set_time_scale(scale: float) end
 -- Assign a deferred write order key by current runtime creation index; recreate after reload.
 fn set_order_key(actor_index: int, key: int) end
--- Post copied text for next frame delivery; false means the bounded inbox is full.
+-- Queue copied text; false means inbox full. Tagged-only recipients fault at the next drain.
 fn post_text(actor_index: int, message: string) -> bool end

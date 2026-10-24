@@ -1,6 +1,8 @@
-# Embedded actors and frame control (SCUA 0.38)
+# Embedded actors and frame control (SCUA 0.39 preview)
 
-LoveSCUA now embeds SCUA 0.38.0, ABI 3. The default remains single-threaded.
+LoveSCUA embeds the upstream concurrency follow-ups shipping in SCUA 0.39, ABI 3.
+The pinned source still reports version 0.38.0; this is a source-built preview,
+not a released 0.39 SDK. The default remains single-threaded.
 Workers are opt-in. Engine objects stay in the main script in the example; actors
 receive copied records/ids, read copied snapshots and submit scalar results.
 
@@ -18,6 +20,7 @@ and restores its logical positions. Escape quits. The display reports work carri
 to later frames, the actor clock and result/fault counts. No window is created by
 the headless command. The eight agents plan velocities; the main script owns every
 Box2D body and applies velocities/steps physics in `post_update`.
+Reusable handlers live in `examples/actors/agents.scua`, which imports the jobs facade.
 
 `--workers 0` is the default/repeatable single-thread mode. `1` also runs on the
 calling thread. `4` means four SCUA execution threads in total: the calling thread
@@ -45,14 +48,27 @@ comes first. Configure them with `--actor-turns N` and `--actor-budget-ms MS`.
 Zero disables one limit; disabling both is rejected. `--actor-order index`,
 `reverse`, or `shuffle:SEED` exercises different schedules.
 
-These are cooperative limits, checked between runtime dispatch units. A running
-turn/native function finishes; one actor quantum may process multiple messages.
-A reported turn is not necessarily one handler call. The time limit can overrun;
-it is not a hard rendering deadline. Keep handlers/native calls small and monitor
-`budget_hit` / `more_ready`. The demo sends one batch at a time, keeping mailboxes
-bounded even when a small budget carries work to later frames. Actor heaps add
-memory usage beyond the main partition; this bridge does not impose an aggregate
-actor-memory quota.
+With a turn limit, each turn starts at most one message, resumes a paused handler,
+or resumes a task. A long handler can therefore consume several turns across calls;
+`turns` is not the number of completed messages. A busy round stops at the limit,
+and actors left over get priority next call. It no longer processes hundreds of
+messages in a single reported turn.
+
+Under either time or turn limits, long SCUA handlers and main-script spawned tasks
+pause at a VM quantum (about 4,000 operations), even when they are the only work.
+They resume next call without losing state. Native functions cannot be preempted;
+the time bound can still overrun by a quantum or a running native call. It is not
+a hard rendering deadline. Keep native calls small and monitor `budget_hit` /
+`more_ready`. The demo sends one batch at a time so a small budget does not fill
+its mailboxes. Actor heaps add memory beyond the main partition; this bridge does
+not impose an aggregate actor-memory quota.
+
+LoveSCUA loads scripts with a positive **1,000,000-operation budget**, independently
+of the frame's turn/time budget. Exhausting it faults that actor's current handler;
+other actors continue, and the same actor can take its next message. The C API's
+`op_budget=0` refills indefinitely and never kills; bounded drains still return, but
+untrusted scripts need a positive kill-switch budget. Main-script load/update
+callbacks still run to completion under their positive operation budget.
 
 `now()` and waits use SCUA's host-controlled logical clock. Waits do not skip ahead
 past the host clock; due work may observe its scheduled logical time. Setting
@@ -107,61 +123,85 @@ producer before shutdown.
 
 ## Fault and reload policy
 
-Ordinary actor/task faults are logged and retained once. Other work and later main
-callbacks continue. `faults()` retains at most 64 records; `fault_count` and
-`dropped_faults` expose overflow. Unexpected scheduler API errors and main callback
-faults remain fatal.
+Actor/task faults are logged and retained once. Assertion/runtime failures and
+actor operation-budget exhaustion are reported through the hook and as
+`SCUA_ERR_OTHER` by that drain; LoveSCUA keeps running other work. A fault ends that
+handler, not the partition: its next message can still run, without a reload.
+There is no global actor halt/reload recovery policy or `info().halted` field now.
 
-SCUA 0.38's hard operation-budget kill switch returns `SCUA_ERR_BUDGET` without an
-ordinary actor-fault callback. LoveSCUA reports this once, sets `info().halted` and
-pauses actor scheduling. Main callbacks/drawing remain usable, but resuming the halted
-runtime is refused; reload creates a fresh runtime. This avoids repeatedly running
-the same runaway actor. It does not claim per-actor isolation for this hard failure.
+An unhandled handler `Error(...)` also reaches the hook, as `SCUA_FAULT_ERROR`.
+`faults()` exposes its kind as `"error"`, separately from `"actor"` and `"task"`;
+this notification does not itself fail the scheduler call. A text post to a
+partition that accepts only tagged messages is accepted into the inbox, then
+reported as a fault on delivery. A successful post means queued, not handled.
+The native owner-thread `scua_actor_tell_text` refuses that mismatch immediately
+with `SCUA_ERR_TYPE`. Use typed `tell` for tagged handlers, or a generic text actor
+for external text posts.
+
+`faults()` retains at most 64 records; `fault_count` and `dropped_faults` expose
+overflow. Partition/message bytes are copied inside the hook. There is a remaining
+SDK issue with names from file-loaded scripts: six NUL bytes instead of `Broken`
+in a standalone reproduction. Runtime slot/generation/epoch remain available;
+do not rely on the displayed name. See [current upstream handoff](SCUA_039_HANDOFF.md).
+Unexpected scheduler API errors and main callback faults remain fatal.
 
 Reload joins/frees the old runtime and rebuilds its actors, snapshots and queues.
-The host clock, fractional remainder, time scale and intentional pause are retained;
-a hard-budget halt is cleared. Actor references and pending messages/results are not
-transferred. Persist logical game data in snapshot/restore and recreate actors from
-it. Rollback still keeps the old game when candidate load/restore fails. External
-filesystem/OS effects retain the limits described in SCUA_RUNTIME.md.
+The host clock, fractional remainder, time scale and intentional pause are retained.
+Actor references and pending messages/results are not transferred. Persist logical
+game data in snapshot/restore and recreate actors from it. Rollback still keeps the
+old game when candidate load/restore fails. External filesystem/OS effects retain
+the limits described in SCUA_RUNTIME.md.
 
 ## SDK and verification
 
 The checked local SDK was built from SCUA commit
-`cd480e93d71c4a903f140dbce2a523116b7fe4d4`, using Zig 0.16.0, ReleaseFast, ABI 3,
+`65cabd9600383b0fda82909b7c72937565e2350d`, using Zig 0.16.0, ReleaseFast, ABI 3,
 with optional dynamic FFI disabled. It is a local native macOS build, not a portable
 release/distribution artifact. The header/runtime version and ABI are checked at
-startup; compile-time checks also reject older headers.
+startup; compile-time checks also require `SCUA_FAULT_ERROR` from the embedding
+follow-ups. Version/ABI numbers alone cannot distinguish the original 0.38 SDK from
+this preview: use the matching pinned header and library, not a mixed pair.
 
-Reproduce from a matching SCUA git checkout:
+Reproduce using a matching SCUA git checkout or bare mirror. This workspace has
+the fetched snapshot in `build/scua-upstream.git`. In a fresh workspace, first run
+`git clone --bare https://github.com/unabated-games/scua.git build/scua-upstream.git`.
+Then build the pinned source (or point --source at another checkout containing it):
 
 ```sh
-python3 scua/build_sdk.py --source ../scua \
-  --revision cd480e93d71c4a903f140dbce2a523116b7fe4d4 \
-  --zig /path/to/zig-0.16 --output build/scua-sdk-0.38
-cmake -S . -B build -DSCUA_ROOT="$PWD/build/scua-sdk-0.38"
+python3 scua/build_sdk.py --source build/scua-upstream.git \
+  --revision 65cabd9600383b0fda82909b7c72937565e2350d \
+  --zig /path/to/zig-0.16 --output build/scua-sdk-0.39-preview
+cmake -S . -B build -DSCUA_ROOT="$PWD/build/scua-sdk-0.39-preview"
 cmake --build build -j2
 ```
 
 The helper snapshots tracked source into the build directory and uses local caches;
 it does not modify/build in the SCUA checkout. `BUILD.json` records SDK provenance.
-A 0.38 CLI alone does not supply a matching embedding library. An optional `--target`
+An installed CLI alone does not supply a matching embedding library. An optional `--target`
 can select an appropriate Zig target/minimum OS when building an SDK; this batch
 makes no new platform/distribution guarantees.
 
 Window-free regressions cover explicit drains, carried work, clock/waits/pause,
-ordered results under multiple schedules, ordinary/deferred/hard-budget faults,
-userdata cleanup, serial physics reentry and actor reload. Native tests verify
+strict turn counts and fairness, ordered results under multiple schedules, native
+aliases/facades in imported actors, isolated operation-budget faults and next-message
+recovery, unhandled Error/type-mismatch notifications, userdata cleanup, serial
+physics reentry and actor reload. Native tests verify
 owner-thread calls, actual worker execution, phase refusal, foreign-thread posting,
-inbox backpressure, deferred application and shutdown. Graphical checks are batched
+inbox backpressure, deferred application and shutdown. They also run lone infinite
+actors/tasks with `op_budget=0` under both kinds of frame limit, and finite long
+handlers/tasks to completion across bounded calls. Graphical checks are batched
 separately at the end, not included in the headless suite.
 
-## Current SCUA limitation
+## Native references in reusable actors
 
-Native module aliases/re-exports are not rebound inside actor heaps in this build.
-Keep native-calling actor handlers in the entry script and use the canonical
-`love_job_reads` / `love_job_commands` namespaces there. Main-script `love.jobs`
-remains convenient for setup, control and consuming results. Pure SCUA helper
-modules can hold game algorithms. The SCUA-team follow-up document contains a
-reproduction and the other observed embedding details:
-[SCUA_038_HANDOFF.md](SCUA_038_HANDOFF.md).
+Imported native aliases, facade records and another module's native aliases now
+work inside actors. The arena's imported agent module calls `bridge.read` and
+`bridge.submit` through the jobs facade. The host regressions exercise direct aliases,
+a raw native in a returned facade, an imported wrapper and the jobs facade with
+both zero and four workers. Native permission/affinity rules still apply; the
+SDK does not let a saved actor resurrect a native function's authority. Game saves
+here remain logical snapshots, with actors/resources recreated on reload.
+
+The original observations are preserved in [the historical 0.38 handoff](SCUA_038_HANDOFF.md).
+The outstanding file-loaded name issue and a standalone C reproduction are in
+[SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md).

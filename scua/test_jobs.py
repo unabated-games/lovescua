@@ -37,7 +37,7 @@ fn post_update(dt)
   assert(love.jobs.info().more_ready and love.jobs.info().budget_hit)
   assert(love.jobs.info().turns<=2)
 end
-fn verify() assert(count>0 and count<24576,`count={count} turns={love.jobs.info().turns}`) end
+fn verify() assert(count==11,`count={count} turns={love.jobs.info().turns}`) end
 ''',options=('--actor-turns','2','--actor-budget-ms','0'))
 
     timer='''import love
@@ -74,6 +74,8 @@ end
     run('host clock, fractional milliseconds, waits and pause',timer)
     run('tasks with multicore enabled',timer,options=('--workers','4'))
 
+    # File-loaded partition names have the known SDK issue reproduced by repro_fault_name.c.
+    # Keep copied byte lengths/identity coverage here; do not claim the names are correct.
     fault='''import love
 partition Broken
   on Crash() assert(false,"deliberate actor fault") end
@@ -86,7 +88,7 @@ fn update(dt) frame=frame+1 end
 fn post_update(dt)
   let errors=love.jobs.faults()
   reports=reports+errors.len()
-  if frame==1 then assert(errors.len()==1 and errors[0].kind=="actor") end
+  if frame==1 then assert(errors.len()==1 and errors[0].kind=="actor" and errors[0].partition.len()==6) end
 end
 fn verify() assert(reports==1 and frame==6 and love.jobs.info().fault_count==1) end
 '''
@@ -129,6 +131,76 @@ end
 '''
     for workers,order in ((0,'index'),(0,'reverse'),(4,'index'),(4,'reverse'),(4,'shuffle:7')):
         run(f'copied results and stable game-id ordering ({workers}, {order})',batch,options=('--workers',str(workers),'--actor-order',order,'--actor-budget-ms','0'))
+
+    (root/'alias_helpers.scua').write_text('import love_job_reads as engine\nfn wrapped(id) return engine.read(id) end\nreturn {raw=engine.read,wrapped=wrapped}\n')
+    (root/'imported_agent.scua').write_text('''import love_job_reads as alias
+import alias_helpers as api
+import jobs as bridge
+partition ImportedAgent
+  on Go()
+    let a=alias.read(2)
+    let b=api.raw(2)
+    let c=api.wrapped(2)
+    let d=bridge.read(2)
+    bridge.submit(2,1,a.x+b.x+c.x+d.x,0)
+  end
+end
+fn start()
+  let agent=ImportedAgent()
+  tell agent.Go()
+  return agent
+end
+return {start=start}
+''')
+    aliases='''import love
+import imported_agent as agents
+let brain=nil
+let done=false
+fn load()
+  love.jobs.publish(2,vec4(3,0,0,0))
+  brain=agents.start()
+end
+fn post_update(dt)
+  for command in love.jobs.commands() do
+    assert(command.id==2 and command.position==vec2(12,0))
+    done=true
+  end
+end
+fn verify() assert(done and love.jobs.info().fault_count==0) end
+'''
+    for workers in (0,4):
+        run(f'imported actor, native alias, raw facade and module alias ({workers})',aliases,options=('--workers',str(workers)))
+
+    fairness='''import love
+partition Worker
+  on Go(id) love_job_commands.submit(id,1,id,0) end
+end
+let seen=[]
+let count=0
+fn load()
+  for i in 0:10 do
+    seen.push(false)
+    let worker=Worker()
+    tell worker.Go(i)
+  end
+end
+fn post_update(dt)
+  let commands=love.jobs.commands()
+  assert(commands.len()<=3 and love.jobs.info().turns<=3)
+  for command in commands do
+    assert(not seen[command.id])
+    seen[command.id]=true
+    count=count+1
+  end
+end
+fn verify()
+  assert(count==10)
+  for value in seen do assert(value) end
+end
+'''
+    for workers in (0,4):
+        run(f'low turn limit across many actors loses no messages ({workers})',fairness,
+            options=('--workers',str(workers),'--actor-turns','3','--actor-budget-ms','0','--actor-order','shuffle:7'))
 
     run('actor userdata remains local and cleans up with workers', '''import love
 partition Pixels
@@ -221,58 +293,91 @@ fn verify()
 end
 ''',options=('--workers','4'))
 
-    run('operation-budget failure halts actor work while main callbacks continue', '''import love
-partition Infinite
+    runaway='''import love
+partition Spin
   on Go() while true do end end
+  on Ping() love_job_commands.submit(0,1,42,0) end
 end
-let actor=Infinite()
-fn load() tell actor.Go() end
-fn post_update(dt) love.jobs.faults() end
-fn verify()
-  assert(love.jobs.info().fault_count==1 and love.jobs.info().halted and love.jobs.info().paused)
-  match pcall(fn() love.jobs.set_paused(false) end)
-    Error(_) -> nil
-    Ok(_) -> assert(false,"halted scheduler must require reload")
+partition Fine
+  on Go() love_job_commands.submit(1,1,99,0) end
+end
+let spin=Spin()
+let fine=Fine()
+let reports=[]
+let saw_spin=false
+let saw_fine=false
+let frame=0
+fn load() tell spin.Go() tell fine.Go() end
+fn update(dt) frame=frame+1 end
+fn post_update(dt)
+  for fault in love.jobs.faults() do
+    assert(fault.kind=="actor" and fault.partition.len()==4 and fault.actor_slot==0)
+    assert(fault.actor_generation>=0 and fault.message!="")
+    reports.push(fault)
+    tell spin.Ping()
+  end
+  for command in love.jobs.commands() do
+    if command.id==0 then assert(command.position.x==42) saw_spin=true end
+    if command.id==1 then assert(command.position.x==99) saw_fine=true end
   end
 end
-''',options=('--workers','4'))
+fn verify()
+  assert(frame==16 and reports.len()==1 and love.jobs.info().fault_count==1)
+  assert(reports[0].partition.len()==4 and reports[0].message!="","fault strings survive later drains")
+  assert(saw_spin and saw_fine and not love.jobs.info().paused)
+end
+'''
+    for workers in (0,4):
+        run(f'runaway actor isolated; healthy actor and next message continue ({workers})',runaway,
+            frames=16,options=('--workers',str(workers),'--actor-turns','128','--actor-budget-ms','0'))
 
-    run('reload recovers a scheduler halted by its operation budget', '''import love
-import json
-partition Work
-  on Go(fail)
-    if fail then while true do end end
-    love_job_commands.submit(0,1,2,3)
-  end
+    returned_error='''import love
+partition NoAmmo
+  on Go() return Error("no ammo") end
+  on Ping() love_job_commands.submit(0,1,17,0) end
 end
-let actor=Work()
-let tick=0
-let replies=0
-fn snapshot() return json.encode({tick=tick}) end
-fn restore(encoded)
-  match json.decode(encoded)
-    Ok(saved) -> tick=saved.tick
-    Error(reason) -> assert(false,tostring(reason))
+let actor=NoAmmo()
+let seen=[]
+let resumed=false
+fn load() tell actor.Go() end
+fn post_update(dt)
+  for fault in love.jobs.faults() do
+    assert(fault.kind=="error" and fault.partition.len()==6 and fault.message.len()>0)
+    seen.push(fault)
+    tell actor.Ping()
   end
+  if love.jobs.commands().len()>0 then resumed=true end
 end
-fn update(dt)
-  tick=tick+1
-  if tick==1 then tell actor.Go(true) end
-  if tick==2 then
-    assert(love.jobs.info().halted)
-    love.event.reload()
-  end
-  if tick==3 then
-    assert(not love.jobs.info().halted and not love.jobs.info().paused)
-    tell actor.Go(false)
-  end
-end
-fn post_update(dt) replies=replies+love.jobs.commands().len() end
 fn verify()
-  assert(tick==6 and replies==1 and love.jobs.info().fault_count==0)
-  assert(not love.jobs.info().halted)
+  assert(seen.len()==1 and seen[0].message.len()>0 and resumed)
+  assert(love.jobs.info().fault_count==1)
 end
-''',options=('--workers','4'))
+'''
+    bad_text='''import love
+partition Tagged
+  on Go() love_job_commands.submit(0,1,2,3) end
+end
+let actor=Tagged()
+let seen=[]
+let completed=false
+fn load()
+  assert(love.jobs.post_text(0,"wrong message type"))
+  tell actor.Go()
+end
+fn post_update(dt)
+  for fault in love.jobs.faults() do
+    assert(fault.kind=="actor" and fault.partition.len()==6 and fault.message!="")
+    seen.push(fault)
+  end
+  if love.jobs.commands().len()>0 then completed=true end
+end
+fn verify() assert(seen.len()==1 and seen[0].partition.len()==6 and completed) end
+'''
+    for workers in (0,4):
+        options=('--workers',str(workers))
+        result=run(f'unanswered Error has its own once-only fault kind ({workers})',returned_error,options=options)
+        assert result.stderr.count('no ammo')==1,result.stderr
+        run(f'posted text to a tagged partition faults visibly ({workers})',bad_text,options=options)
 
     run('deferred validation faults surface once in the serial phase', '''import love
 partition Invalid

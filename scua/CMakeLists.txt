@@ -1,18 +1,19 @@
-set(SCUA_ROOT "" CACHE PATH "SCUA 0.38 SDK (contains include/scua.h and lib/libscua.a)")
+set(SCUA_ROOT "" CACHE PATH "SCUA SDK with embedding follow-ups (0.39 or pinned preview, ABI 3)")
 if(SCUA_ROOT)
     get_filename_component(SCUA_ROOT "${SCUA_ROOT}" ABSOLUTE)
     set(SCUA_INCLUDE_DIR "${SCUA_ROOT}/include" CACHE PATH "SCUA SDK headers" FORCE)
     set(SCUA_LIBRARY "${SCUA_ROOT}/lib/libscua.a" CACHE FILEPATH "SCUA SDK library" FORCE)
     if(NOT EXISTS "${SCUA_INCLUDE_DIR}/scua.h" OR NOT EXISTS "${SCUA_LIBRARY}")
-        message(FATAL_ERROR "SCUA_ROOT must contain the matching 0.38 ABI 3 include/scua.h and lib/libscua.a")
+        message(FATAL_ERROR "SCUA_ROOT must contain the matching ABI 3 include/scua.h and lib/libscua.a")
     endif()
 endif()
 find_path(SCUA_INCLUDE_DIR scua.h HINTS "${SCUA_ROOT}/include" REQUIRED)
 find_library(SCUA_LIBRARY NAMES scua HINTS "${SCUA_ROOT}/lib" REQUIRED)
 file(READ "${SCUA_INCLUDE_DIR}/scua.h" scua_sdk_header)
-if(NOT scua_sdk_header MATCHES "#define SCUA_VERSION_MINOR 38[\r\n]" OR
-   NOT scua_sdk_header MATCHES "#define SCUA_ABI_VERSION 3[\r\n]")
-    message(FATAL_ERROR "LoveSCUA requires matching SCUA 0.38.0 / ABI 3 headers and library; update SCUA_ROOT")
+if(NOT scua_sdk_header MATCHES "#define SCUA_VERSION_MINOR (38|39)[\r\n]" OR
+   NOT scua_sdk_header MATCHES "#define SCUA_ABI_VERSION 3[\r\n]" OR
+   NOT scua_sdk_header MATCHES "#define SCUA_FAULT_ERROR 3[\r\n]")
+    message(FATAL_ERROR "LoveSCUA requires SCUA embedding follow-ups (0.39 or pinned preview, ABI 3); rebuild the matching SDK using SCUA_ACTORS.md and update SCUA_ROOT")
 endif()
 add_library(scua_runtime STATIC IMPORTED)
 set_target_properties(scua_runtime PROPERTIES

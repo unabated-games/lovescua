@@ -52,6 +52,72 @@ static void received(scua_ctx *c)
     if (msg && n == 5 && std::memcmp(msg, "hello", 5) == 0)
         ++s.received;
 }
+// op_budget=0 must still return to the host under either frame limit. Exercise
+// both an actor and a top-level spawned task, plus finite resumptions losing no work.
+static void boundedWork(int workers)
+{
+    const char *sources[] = {
+        "partition Spin on Go() while true do end end end let spin=Spin() tell spin.Go()",
+        "spawn(fn() while true do end end)",
+        "partition Long on Go() let n=0 while n<20000 do n=n+1 end love_job_commands.submit(0,1,n,0) end end "
+        "let actor=Long() tell actor.Go()",
+        "spawn(fn() let n=0 while n<20000 do n=n+1 end love_job_commands.submit(0,1,n,0) end)"};
+    for (int kind = 0; kind < 4; ++kind)
+    {
+        lovescua::Host base, host;
+        host.cpuOnly = true;
+        struct Partition
+        {
+            scua_partition *p = scua_partition_new();
+            ~Partition()
+            {
+                if (p)
+                    scua_partition_free(p);
+            }
+        } partition;
+        require(partition.p, "bounded-work allocation");
+        lovescua::JobSettings settings;
+        settings.workers = workers;
+        settings.maxTurns = 2;
+        settings.maxNs = 0;
+        lovescua::configureJobs(partition.p, host, settings, base);
+        lovescua::registerJobs(partition.p, host);
+        char error[1024]{};
+        require(scua_load_script(partition.p, sources[kind], std::strlen(sources[kind]), 64u << 20, 0, error,
+                                 sizeof(error)) == SCUA_OK,
+                error);
+        if (kind < 2)
+        {
+            for (int call = 0; call < 3; ++call)
+            {
+                host.jobs->settings.maxTurns = call == 1 ? 0 : 2;
+                host.jobs->settings.maxNs = call == 1 ? 2000000 : 0;
+                lovescua::runJobs(host);
+                require(host.jobs->report.more_ready && host.jobs->report.budget_hit,
+                        "lone infinite work must yield at either limit");
+                if (call != 1)
+                    require(host.jobs->report.turns <= 2, "infinite-work turn limit");
+            }
+        }
+        else
+        {
+            int calls = 0;
+            while (host.jobs->commands.empty() && calls < 1000)
+            {
+                lovescua::runJobs(host);
+                ++calls;
+                require(host.jobs->report.turns <= 2, "finite-work turn limit");
+            }
+            require(calls > 1 && host.jobs->commands.size() == 1 && host.jobs->commands[0].x == 20000,
+                    "finite work must finish across bounded calls without losing state");
+        }
+        require(host.jobs->faultCount == 0, "zero op budget pauses instead of killing");
+        require(scua_partition_free_checked(partition.p) == SCUA_OK, "bounded-work shutdown");
+        partition.p = nullptr;
+    }
+    std::cout << "PASS: lone actor/task bounded return, zero op budget and finite resumptions (workers="
+              << workers << ")\n";
+}
 int main(int argc, char **argv)
 {
     try
@@ -59,6 +125,7 @@ int main(int argc, char **argv)
         require(argc == 2, "expected worker count");
         Probe probe;
         probe.workers = std::stoi(argv[1]);
+        boundedWork(probe.workers);
         lovescua::Host base, host;
         host.cpuOnly = true;
         struct Partition
@@ -144,6 +211,23 @@ end
                     "deferred worker statistics");
         }
         require(host.jobs->faultCount == 0, "no actor faults");
+        require(scua_actor_tell_text(partition.p, ids[1], "wrong type") == SCUA_ERR_TYPE,
+                "direct text to a tagged partition must be refused");
+        require(host.jobs->faultCount == 1 && host.jobs->faults.size() == 1 &&
+                    host.jobs->faults[0].partition == "Worker" &&
+                    host.jobs->faults[0].actor.slot == ids[1].slot,
+                "direct text refusal identifies the partition");
+        auto savedMessage = host.jobs->faults[0].message;
+        lovescua::runJobs(host);
+        require(host.jobs->faultCount == 1, "direct text fault does not repeat");
+        require(scua_post_text(partition.p, ids[1], "wrong type", 10) == SCUA_OK,
+                "typed text post is accepted into the inbox");
+        lovescua::runJobs(host);
+        require(host.jobs->faultCount == 2 && host.jobs->faults.size() == 2 &&
+                    host.jobs->faults[1].partition == "Worker" &&
+                    host.jobs->faults[1].kind == SCUA_FAULT_ACTOR &&
+                    host.jobs->faults[0].message == savedMessage,
+                "posted type fault is visible and hook strings are owned copies");
         require(scua_partition_free_checked(partition.p) == SCUA_OK, "worker shutdown");
         partition.p = nullptr;
         std::cout << "PASS: affinity, phase guards, ordered results, foreign-thread posting/backpressure and "

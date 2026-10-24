@@ -1,0 +1,29 @@
+import jobs as bridge
+
+-- Only copied messages and ids enter actors. Physics objects belong to the main script.
+record Think { step: int, target: vec2 }
+partition Agent
+  state id = 0
+  on Init(value) id = value end
+  on Think(job: Think)
+    let snapshot = bridge.read(id)
+    let direction = job.target - snapshot.xy
+    let velocity = vec2(0,0)
+    if direction.length()>4 then velocity=direction.normalize()*95 end
+    -- Isolated CPU work: no engine objects and no shared mutable state.
+    let checksum=0
+    for k in 0:1200 do checksum=(checksum+k*17+id)%997 end
+    velocity=velocity*(0.95+checksum/20000)
+    bridge.submit(id,job.step,velocity.x,velocity.y)
+  end
+end
+fn create(id: int)
+  let brain=Agent()
+  tell brain.Init(id)
+  return brain
+end
+fn request(brain, step: int, target: vec2)
+  let job: Think={step=step,target=target}
+  tell brain.Think(job)
+end
+return {create=create,request=request}

@@ -1,8 +1,8 @@
 import love_jobs
 import love_job_reads
 import love_job_commands
--- Main-script facade. In actor handlers use the canonical native namespaces
--- love_job_reads.read / love_job_commands.submit; imported aliases are not rebound.
+-- Read/submit work through this facade in imported actor handlers too.
+-- Publish, control and drain operations remain main-script-only.
 fn publish(id: int, snapshot: vec4) love_jobs.publish(id,snapshot) end
 fn read(id: int) -> vec4 return love_job_reads.read(id) end
 fn submit(id: int, step: int, x: float, y: float) love_job_commands.submit(id,step,x,y) end

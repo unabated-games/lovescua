@@ -1,4 +1,4 @@
-> Current status: SCUA 0.38 actors and opt-in workers are implemented; see the 2026-10-24 batch below. Earlier entries describe their original SDK versions.
+> Current status: the pinned SCUA 0.39 preview fixes are integrated; see the latest follow-up below. Earlier entries retain their original SDK behavior.
 
 # Completed feature conversion batch
 
@@ -196,3 +196,36 @@ faults, and its screenshot was inspected. No full graphical suite was run.
 Design, SDK reproduction and limits: [SCUA_ACTORS.md](SCUA_ACTORS.md).
 Manual SCUA-team handoff: [SCUA_038_HANDOFF.md](SCUA_038_HANDOFF.md).
 Windows/Linux and distribution remain outside this batch.
+
+
+## SCUA 0.39 preview follow-up (2026-10-24)
+
+Built and pinned upstream main `65cabd9600383b0fda82909b7c72937565e2350d` in an
+isolated build copy; the sibling checkout remains unchanged. These fixes ship in
+0.39, but the source still reports 0.38.0 / ABI 3. CMake/headers require the new
+fault notification API; version/ABI matching alone does not distinguish old 0.38.
+
+- Moved the arena's native-calling handlers into `examples/actors/agents.scua`.
+  Imported native aliases, raw native facades, imported wrappers and the nested
+  jobs facade work with 0 and 4 workers.
+- Removed global actor halt/reload recovery and info().halted. A positive-budget
+  runaway faults once; another actor and the same actor's next message continue.
+- Added distinct kind="error" records for unhandled Error results and visible
+  type-mismatch post diagnostics. Immediate/direct and queued text refusal paths
+  have native coverage, including copied hook strings.
+- Updated strict turn accounting/fairness checks. Native fixtures verify lone
+  infinite handlers/tasks with op_budget=0 return under either bound, and finite
+  long handlers/tasks finish across calls without losing state.
+- Isolated the remaining name problem to file loading with a standalone C SDK
+  diagnostic: memory source reports Broken; the same file reports six NUL bytes,
+  with both worker modes. This is reproducible while copying inside the hook.
+  The diagnostic is separate from passing CTests and currently exits 1 as expected.
+
+Validation: all 17 audio-enabled and 15 audio-disabled window-free checks pass;
+all 26 example definitions load with audio, and the 22 compatible entries load
+without audio. Generated declarations match both executables. No windows opened.
+
+The previous 0.38 halt/alias limitations above are historical. Current behavior,
+SDK build instructions and limits are in SCUA_ACTORS.md. The new manually
+forwardable handoff, reproduction source and observed output are in
+[SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md). Windows/Linux/distribution remain excluded.

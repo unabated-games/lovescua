@@ -1,4 +1,4 @@
-> Historical 0.37 handoff. The 0.38 implementation is described in [SCUA_ACTORS.md](SCUA_ACTORS.md); current upstream observations are in [SCUA_038_HANDOFF.md](SCUA_038_HANDOFF.md).
+> Historical 0.37 handoff. The 0.38 implementation is described in [SCUA_ACTORS.md](SCUA_ACTORS.md); current upstream observations are in [SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md).
 
 # LoveSCUA: embedded concurrency handoff
 

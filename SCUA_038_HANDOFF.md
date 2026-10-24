@@ -1,3 +1,5 @@
+> Historical report against `cd480e93`. Items 1–3 are resolved by the pinned 0.39 preview. The remaining file-loaded partition-name issue now has a standalone C reproduction in [SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md). Current integration: [SCUA_ACTORS.md](SCUA_ACTORS.md).
+
 # LoveSCUA → SCUA team: 0.38 embedding follow-up
 
 Source snapshot: `cd480e93d71c4a903f140dbce2a523116b7fe4d4`, Zig 0.16.0,

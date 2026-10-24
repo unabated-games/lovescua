@@ -1,24 +1,8 @@
 import love
 import json
 import math
+import agents
 
--- Only copied messages and ids enter actors. Physics objects belong to the main script.
-record Think { step: int, target: vec2 }
-partition Agent
-  state id = 0
-  on Init(value) id = value end
-  on Think(job: Think)
-    let snapshot = love_job_reads.read(id)
-    let direction = job.target - snapshot.xy
-    let velocity = vec2(0,0)
-    if direction.length()>4 then velocity=direction.normalize()*95 end
-    -- Isolated CPU work: no engine objects and no shared mutable state.
-    let checksum=0
-    for k in 0:1200 do checksum=(checksum+k*17+id)%997 end
-    velocity=velocity*(0.95+checksum/20000)
-    love_job_commands.submit(id,job.step,velocity.x,velocity.y)
-  end
-end
 record Entity { id: int, body: any, brain: any, waiting: bool = false, step: int = -1 }
 let entities: {Entity}=[]
 let world=nil
@@ -33,8 +17,7 @@ fn load()
     let body=love.physics.new_body(world,vec2(480+math.cos(angle)*180,320+math.sin(angle)*180),"dynamic")
     love.physics.new_circle(body,13,1)
     love.physics.body_set_damping(body,0.5,0.5)
-    let brain=Agent()
-    tell brain.Init(i)
+    let brain=agents.create(i)
     entities.push({id=i,body=body,brain=brain})
     love.jobs.set_order_key(i,i)
   end
@@ -52,8 +35,7 @@ fn update(dt: float)
       love.jobs.publish(entity.id,vec4(position.x,position.y,0,0))
       if not pending then
         let angle=phase*0.6+entity.id*6.283185/8
-        let job: Think={step=ticks,target=vec2(480+math.cos(angle)*210,320+math.sin(angle)*180)}
-        tell entity.brain.Think(job)
+        agents.request(entity.brain,ticks,vec2(480+math.cos(angle)*210,320+math.sin(angle)*180))
         entity.waiting=true
       end
     end

@@ -1,4 +1,4 @@
-"""Build an immutable local SCUA 0.38 / ABI 3 SDK without changing its checkout."""
+"""Build a pinned SCUA embedding SDK (0.39 or its preview, ABI 3) without changing its checkout."""
 import argparse
 import json
 from pathlib import Path
@@ -10,16 +10,20 @@ import tarfile
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source',type=Path,required=True,help='SCUA git checkout')
 parser.add_argument('--revision',default='HEAD')
-parser.add_argument('--output',type=Path,default=Path('build/scua-sdk-0.38'))
+parser.add_argument('--output',type=Path,default=Path('build/scua-sdk-0.39-preview'))
 parser.add_argument('--zig',default='zig',help='Zig 0.16 executable')
 parser.add_argument('--target',help='optional Zig target triple/minimum OS')
 args=parser.parse_args()
 source=args.source.resolve()
 revision=subprocess.check_output(['git','rev-parse',args.revision],cwd=source,text=True).strip()
 header=subprocess.check_output(['git','show',revision+':include/scua.h'],cwd=source,text=True)
-for name,value in [('SCUA_VERSION_MAJOR',0),('SCUA_VERSION_MINOR',38),('SCUA_VERSION_PATCH',0),('SCUA_ABI_VERSION',3)]:
-    if not re.search(r'^#define '+name+r'\s+'+str(value)+r'\s*$',header,re.M):
-        raise SystemExit('Expected SCUA 0.38.0 ABI 3 at '+revision)
+def define(name):
+    found=re.search(r'^#define '+name+r'\s+(\d+)\s*$',header,re.M)
+    if not found: raise SystemExit('Missing '+name+' at '+revision)
+    return int(found[1])
+version=tuple(define('SCUA_VERSION_'+part) for part in ('MAJOR','MINOR','PATCH'))
+if version not in ((0,38,0),(0,39,0)) or define('SCUA_ABI_VERSION')!=3 or define('SCUA_FAULT_ERROR')!=3:
+    raise SystemExit('Expected SCUA 0.39 or its embedding preview (ABI 3) at '+revision)
 zig_version=subprocess.check_output([args.zig,'version'],text=True).strip()
 if not zig_version.startswith('0.16.'):
     raise SystemExit('This SCUA source uses Zig 0.16.x; select it with --zig (found '+zig_version+')')
@@ -38,7 +42,7 @@ command=[args.zig,'build','sdk','-Doptimize=ReleaseFast','-Ddev=false','-j2',
 if args.target: command.append('-Dtarget='+args.target)
 subprocess.run(command,cwd=work,check=True)
 shutil.copy2(work/'packaging/LICENSE',output/'LICENSE')
-(output/'BUILD.json').write_text(json.dumps({'source_commit':revision,'version':'0.38.0','abi':3,
+(output/'BUILD.json').write_text(json.dumps({'source_commit':revision,'version':'.'.join(map(str,version)),'abi':3,
                                            'zig':zig_version,'optimize':'ReleaseFast','ffi':False,
                                            'target':args.target or 'native'},indent=2)+'\n')
 print('Built',output)

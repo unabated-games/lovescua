@@ -23,6 +23,20 @@ void serial(Jobs &s)
     if (s.phase != JobPhase::Serial)
         throw std::invalid_argument("this operation belongs in load/update/post_update, outside actor work");
 }
+const char *faultKind(int kind)
+{
+    switch (kind)
+    {
+    case SCUA_FAULT_ACTOR:
+        return "actor";
+    case SCUA_FAULT_TASK:
+        return "task";
+    case SCUA_FAULT_ERROR:
+        return "error";
+    default:
+        return "unknown";
+    }
+}
 void fault(void *context, const scua_fault_info *f) noexcept
 {
     auto &s = *static_cast<Jobs *>(context);
@@ -30,11 +44,13 @@ void fault(void *context, const scua_fault_info *f) noexcept
     try
     {
         JobFault item{f->kind, f->line, f->actor,
-                      std::string(f->partition ? f->partition : "", std::min<size_t>(f->partition_len, 256)),
-                      std::string(f->message ? f->message : "", std::min<size_t>(f->message_len, 4096))};
+                      std::string(f->partition ? f->partition : "",
+                                  f->partition ? std::min<size_t>(f->partition_len, 256) : 0),
+                      std::string(f->message ? f->message : "",
+                                  f->message ? std::min<size_t>(f->message_len, 4096) : 0)};
         std::fprintf(stderr, "lovescua: %s fault [%s slot=%u generation=%u] line %u: %s\n",
-                     f->kind == SCUA_FAULT_ACTOR ? "actor" : "task", item.partition.c_str(), item.actor.slot,
-                     item.actor.generation, item.line, item.message.c_str());
+                     faultKind(f->kind), item.partition.c_str(), item.actor.slot, item.actor.generation,
+                     item.line, item.message.c_str());
         if (s.faults.size() < 64)
             s.faults.push_back(std::move(item));
         else
@@ -110,7 +126,7 @@ void faults(scua_ctx *c)
     for (auto &v : s.faults)
     {
         Record r(c);
-        r.str("kind", v.kind == SCUA_FAULT_ACTOR ? "actor" : "task");
+        r.str("kind", faultKind(v.kind));
         r.integer("line", v.line);
         r.integer("actor_slot", v.actor.slot);
         r.integer("actor_generation", v.actor.generation);
@@ -141,7 +157,6 @@ void info(scua_ctx *c)
     r.integer("max_turns", s.settings.maxTurns);
     r.num("budget_ms", s.settings.maxNs / 1e6);
     r.boolean("paused", s.paused);
-    r.boolean("halted", s.halted);
     r.num("time_scale", s.timeScale);
     r.integer("fault_count", s.faultCount);
     r.integer("dropped_faults", s.droppedFaults);
@@ -157,11 +172,7 @@ void paused(scua_ctx *c)
     arity(c, 1);
     auto &s = jobs(c);
     serial(s);
-    bool requested = boolean(c, 0);
-    if (s.halted && !requested)
-        throw std::invalid_argument(
-            "actor scheduler halted after an operation-budget failure; reload to recover");
-    s.paused = requested;
+    s.paused = boolean(c, 0);
 }
 void scale(scua_ctx *c)
 {
@@ -216,7 +227,7 @@ void configureJobs(scua_partition *p, Host &h, const JobSettings &settings, cons
     {
         s.clockMs = base.jobs->clockMs;
         s.remainderMs = base.jobs->remainderMs;
-        s.paused = base.jobs->paused && !base.jobs->halted;
+        s.paused = base.jobs->paused;
         s.timeScale = base.jobs->timeScale;
     }
     checked(scua_set_drain_mode(p, SCUA_DRAIN_EXPLICIT), "explicit actor drain");
@@ -259,16 +270,7 @@ void runJobs(Host &h)
     uint64_t before = s.faultCount;
     s.phase = JobPhase::Actors;
     int result = scua_run_turns(s.partition, &budget, &s.report, error, sizeof(error));
-    if (result == SCUA_ERR_BUDGET)
-    {
-        s.halted = true;
-        s.paused = true;
-        std::string message =
-            std::string("actor scheduler halted by operation budget; reload to recover: ") + error;
-        scua_fault_info f{sizeof(f), SCUA_FAULT_TASK, {}, "scheduler", 9, 0, message.data(), message.size()};
-        fault(&s, &f);
-    }
-    else if (result == SCUA_ERR_OTHER)
+    if (result == SCUA_ERR_OTHER)
     {
         if (s.faultCount == before)
         {
@@ -303,7 +305,7 @@ void registerJobs(scua_partition *p, Host &h)
          {"love_jobs", "commands", guarded<commands>, "commands() -> any",
           "Drain copied commands sorted by step/id in post_update; engine objects stay in the main script."},
          {"love_jobs", "faults", guarded<faults>, "faults() -> any",
-          "Drain actor/task faults reported once; up to 64 retained faults."},
+          "Drain actor/task/unhandled Error notifications reported once; up to 64 retained records."},
          {"love_jobs", "info", guarded<info>, "info() -> any",
           "Get frame budget, clock, worker statistics and fault totals."},
          {"love_jobs", "set_paused", guarded<paused>, "set_paused(paused: bool)",
@@ -314,7 +316,7 @@ void registerJobs(scua_partition *p, Host &h)
           "Assign a deferred write order key by current runtime creation index; recreate after reload."},
          {"love_jobs", "post_text", guarded<post_text>,
           "post_text(actor_index: int, message: string) -> bool",
-          "Post copied text for next frame delivery; false means the bounded inbox is full."},
+          "Queue copied text; false means inbox full. Tagged-only recipients fault at the next drain."},
          {"love_job_reads", "read", guarded<read>, "read(id: int) -> vec4",
           "Read a published snapshot directly on workers; immutable during actor work."},
          {"love_job_commands", "submit", guarded<submit>, "submit(id: int, step: int, x: float, y: float)",

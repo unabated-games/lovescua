@@ -264,8 +264,10 @@ int main(int argc, char **argv)
 {
     try
     {
-        if (scua_abi_version() != SCUA_ABI_VERSION || scua_version() != ((0u << 16) | (38u << 8)))
-            throw std::runtime_error("this host requires the matching SCUA 0.38.0 SDK and ABI 3");
+        constexpr uint32_t headerVersion =
+            (SCUA_VERSION_MAJOR << 16) | (SCUA_VERSION_MINOR << 8) | SCUA_VERSION_PATCH;
+        if (scua_abi_version() != SCUA_ABI_VERSION || scua_version() != headerVersion)
+            throw std::runtime_error("this host requires matching SCUA SDK headers and runtime (ABI 3)");
         Options options;
         bool verify = false;
         for (int i = 1; i < argc; ++i)

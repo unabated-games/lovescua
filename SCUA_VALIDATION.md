@@ -1,4 +1,4 @@
-> Current SDK and concurrency results are in the 2026-10-24 section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
+> Current SDK and concurrency results are in the SCUA 0.39 preview section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
 
 # macOS conversion validation — 2026-10-22
 
@@ -190,3 +190,39 @@ reconstruction inside actor heaps remains an SDK limitation; canonical names wor
 The hard operation-budget path is handled at scheduler scope until reload. See
 [actor design/limits](SCUA_ACTORS.md) and [manual upstream handoff](SCUA_038_HANDOFF.md).
 Windows/Linux, distribution and the earlier hardware/manual checks remain separate.
+
+
+## SCUA 0.39 preview follow-up — 2026-10-24
+
+Built the upstream main snapshot `65cabd9600383b0fda82909b7c72937565e2350d` with
+the SDK helper (Zig 0.16.0, ReleaseFast, ABI 3, FFI disabled). It still reports
+0.38.0; no released 0.39 SDK is claimed. Both host builds use the matching header
+and library in build/scua-sdk-0.39-preview. The local native minimum-OS limitation
+recorded above remains; no platform/distribution work was added.
+
+The new actor tests cover imported handlers and native aliases/facades; strict
+message/resumption turn bounds and many-actor fairness; positive-budget fault
+isolation with a subsequent message on the same actor; distinct unhandled Error
+notifications; direct text refusal and posted type-mismatch faults. Native tests
+also exercise op_budget=0 infinite actors/tasks under time and turn limits, finite
+long resumptions with preserved state, and hook strings copied during callback.
+These run with 0 and 4 workers, without graphics or audio devices.
+
+The standalone diagnostic scua/repro_fault_name.c exposes a remaining SDK issue:
+scua_load_script reports partition bytes 42726f6b656e (Broken), while
+scua_load_script_file reports 000000000000 for the same six-byte name. Both worker
+modes reproduce it in plain C without LÖVE or imports. Fault bytes are memcpy'd
+inside the hook. Its exit 1 is the expected known-issue result, not a passing
+regression test; it is intentionally outside CTest. The script regressions do not
+claim file-loaded names are correct. Runtime identities remain usable.
+
+Final validation: all 17 window-free CTests pass with audio, and all 15 pass
+without audio. All 26 example entry scripts load under --check in the audio host;
+the 22 entries without audio/hardware imports load in the no-audio host. Generated
+declarations match both executables (22 modules with audio, 20 without).
+The SDK helper also rejects the legacy source lacking SCUA_FAULT_ERROR before
+building. The standalone known-issue diagnostic is excluded from these pass counts.
+
+See [current design](SCUA_ACTORS.md) and the [manual SDK handoff](SCUA_039_HANDOFF.md).
+The earlier global-halt/alias constraints in this document are historical and no
+longer describe the current host. No graphical scenes were run for this follow-up.

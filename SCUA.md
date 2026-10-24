@@ -1,7 +1,8 @@
 # LÖVE + SCUA
 
 This is an altered LÖVE 12 development fork. The SCUA integration replaces
-Lua's startup and bindings with a C++ host linked to **SCUA 0.38.0 / ABI 3**. It uses
+Lua's startup and bindings with a C++ host linked to **SCUA 0.39 preview / ABI 3**.
+The pinned source still reports 0.38.0. It uses
 LÖVE's actual window, graphics, font and image implementations. Game logic runs
 in SCUA; there is no Lua interpreter or Lua dependency in `lovescua`.
 
@@ -62,7 +63,8 @@ slicing and pattern matching. Its game logic is in
 
 You need Xcode command line tools, CMake, FreeType, HarfBuzz, zlib, Vorbis/Ogg
 and OpenAL Soft, plus the **SCUA
-0.38.0 embedding SDK**. The installed `scua` command alone is not enough: the
+embedding SDK with the 0.39 follow-ups** (or the pinned source-built preview in
+[SCUA_ACTORS.md](SCUA_ACTORS.md#sdk-and-verification)). The installed `scua` command alone is not enough: the
 host needs the matching `include/scua.h` and `lib/libscua.a` from the SDK.
 Python 3 and the `scua` 0.38 command are needed when `BUILD_TESTING` is enabled
 (the default).
@@ -97,7 +99,7 @@ For offline audio builds, add
 `-DFETCHCONTENT_SOURCE_DIR_MODPLUG=/path/to/libmodplug-d1b97ed0020bc620a059d3675d1854b40bd2608d`.
 Use `/usr/local` instead of `/opt/homebrew` for an Intel Homebrew installation.
 
-For this workspace, the matching SDK is built in `build/scua-sdk-0.38` from a
+For this workspace, the matching SDK is built in `build/scua-sdk-0.39-preview` from a
 pinned SCUA source snapshot. See [SDK build instructions](SCUA_ACTORS.md#sdk-and-verification)
 to reproduce it. SDL source in `build/vendor/SDL3-3.2.28` is a fallback; the current
 build uses installed SDL 3.4.18. These and OpenAL Soft in
@@ -106,7 +108,7 @@ CMake cache already points to them. To configure again using them:
 
 ```sh
 cmake -S . -B build -DLOVE_SCUA=ON \
-  -DSCUA_ROOT="$PWD/build/scua-sdk-0.38" \
+  -DSCUA_ROOT="$PWD/build/scua-sdk-0.39-preview" \
   -DLOVE_SCUA_FETCH_SDL=ON \
   -DFETCHCONTENT_SOURCE_DIR_SDL3="$PWD/build/vendor/SDL3-3.2.28" \
   -DLOVE_SCUA_FETCH_OPENAL=ON \
@@ -184,8 +186,9 @@ The main script and engine work run on the owner thread. Actor workers are opt-i
 all existing engine natives stay classified main-thread, with copied-data bridge
 operations explicitly classified for parallel reads/deferred results. Each frame has a handle scope; cached callbacks and queued event payloads remain pinned. Native calls validate arguments and catch C++
 exceptions before they can cross the C ABI. Main callback/native faults print a located error and exit with status 1.
-Ordinary actor/task faults are reported once and do not stop other work; a hard
-actor operation-budget failure halts scheduling until reload. Each callback has a one-million-step
+Actor/task faults, including actor operation-budget exhaustion, are reported once
+and leave other work and the actor's next message runnable. Unhandled Error results
+are reported separately as `kind="error"`. Each callback has a one-million-step
 budget and the main script partition has a 64 MiB memory cap. Actor heaps add
 memory usage; the bridge does not impose an aggregate actor-memory quota.
 
@@ -837,9 +840,9 @@ optional resource types and an upstream migration audit. The current registry ha
 interfaces and rollback/typing limits; [validation](SCUA_VALIDATION.md) records what
 was actually checked.
 
-- SCUA 0.38 frame control and opt-in multicore are implemented. The default is
+- SCUA frame control and opt-in multicore are implemented using the 0.39 preview fixes. The default is
   single-threaded, with bounded actor work and a host clock. See [actor integration](SCUA_ACTORS.md)
-  for phase ordering, fault/reload policy, SDK provenance and current alias limitations.
+  for phase ordering, fault/reload policy, SDK provenance and the outstanding file-loaded fault-name issue.
   This replaces Lua thread/channel patterns; it does not reproduce their shared-state API.
 - Physical controllers/sensors, microphone capture, audible playback/HRTF and some
   interactive desktop behavior still need human/hardware verification. The real

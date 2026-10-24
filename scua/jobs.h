@@ -1,4 +1,4 @@
-// Frame scheduling and a copied-data bridge for SCUA 0.38 actors.
+// Frame scheduling and a copied-data bridge for SCUA actors.
 #pragma once
 #include <array>
 #include <cstdint>
@@ -40,7 +40,7 @@ struct Jobs
     scua_partition *partition = nullptr;
     JobSettings settings;
     JobPhase phase = JobPhase::Serial;
-    bool paused = false, halted = false;
+    bool paused = false;
     double timeScale = 1, remainderMs = 0;
     int64_t clockMs = 0;
     scua_turn_report report{sizeof(scua_turn_report), 0, 0, 0, 0, -1};
