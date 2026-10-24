@@ -1,7 +1,7 @@
 # LÖVE + SCUA
 
 This is an altered LÖVE 12 development fork. The SCUA integration replaces
-Lua's startup and bindings with a C++ host linked to **SCUA 0.37.0**. It uses
+Lua's startup and bindings with a C++ host linked to **SCUA 0.38.0 / ABI 3**. It uses
 LÖVE's actual window, graphics, font and image implementations. Game logic runs
 in SCUA; there is no Lua interpreter or Lua dependency in `lovescua`.
 
@@ -39,6 +39,8 @@ From this repository:
 ./build/lovescua examples/events
 ./build/lovescua --save-dir "$PWD/build/demo-saves" examples/filesystem
 ./build/lovescua examples/platform
+./build/lovescua examples/actors
+./build/lovescua --workers 4 examples/actors
 ./build/lovescua --headless --verify --frames 1 examples/cpu_images
 ./build/lovescua --headless --verify --frames 3 --save-dir "$PWD/build/demo-saves" examples/state_reload
 ```
@@ -60,9 +62,9 @@ slicing and pattern matching. Its game logic is in
 
 You need Xcode command line tools, CMake, FreeType, HarfBuzz, zlib, Vorbis/Ogg
 and OpenAL Soft, plus the **SCUA
-0.37.0 embedding SDK**. The installed `scua` command alone is not enough: the
+0.38.0 embedding SDK**. The installed `scua` command alone is not enough: the
 host needs the matching `include/scua.h` and `lib/libscua.a` from the SDK.
-Python 3 and the `scua` 0.37 command are needed when `BUILD_TESTING` is enabled
+Python 3 and the `scua` 0.38 command are needed when `BUILD_TESTING` is enabled
 (the default).
 
 Set `SCUA_SDK_DIR` to your extracted SDK directory, then:
@@ -95,13 +97,16 @@ For offline audio builds, add
 `-DFETCHCONTENT_SOURCE_DIR_MODPLUG=/path/to/libmodplug-d1b97ed0020bc620a059d3675d1854b40bd2608d`.
 Use `/usr/local` instead of `/opt/homebrew` for an Intel Homebrew installation.
 
-For this workspace, the matching SDK was copied to `build/scua-sdk` and SDL's
-source to `build/vendor/SDL3-3.2.28`. These and OpenAL Soft in `build/vendor/openal-soft-1.24.3` are local, ignored build inputs. The
-existing CMake cache already points to them. To configure again using them:
+For this workspace, the matching SDK is built in `build/scua-sdk-0.38` from a
+pinned SCUA source snapshot. See [SDK build instructions](SCUA_ACTORS.md#sdk-and-verification)
+to reproduce it. SDL source in `build/vendor/SDL3-3.2.28` is a fallback; the current
+build uses installed SDL 3.4.18. These and OpenAL Soft in
+`build/vendor/openal-soft-1.24.3` are local, ignored build inputs. The existing
+CMake cache already points to them. To configure again using them:
 
 ```sh
 cmake -S . -B build -DLOVE_SCUA=ON \
-  -DSCUA_ROOT="$PWD/build/scua-sdk" \
+  -DSCUA_ROOT="$PWD/build/scua-sdk-0.38" \
   -DLOVE_SCUA_FETCH_SDL=ON \
   -DFETCHCONTENT_SOURCE_DIR_SDL3="$PWD/build/vendor/SDL3-3.2.28" \
   -DLOVE_SCUA_FETCH_OPENAL=ON \
@@ -150,6 +155,7 @@ Only `draw()` is required. Optional callbacks are:
 | --- | --- |
 | `load`, `draw`, `quit`, `verify` | none |
 | `update` | elapsed seconds as `float` |
+| `post_update` | elapsed seconds as `float`, after actor/deferred work |
 | `keypressed`, `keyreleased` | SDL scancode name as `string` |
 | `resize` | logical size as `vec2` |
 | `mousepressed`, `mousereleased` | position `vec2`, button `int` (1 left, 2 right, 3 middle) |
@@ -174,11 +180,14 @@ retains its SCUA payload through delivery. Posting from `event()` delivers on a
 later frame; the queue is limited to 256 entries. The events example uses an enum
 and a typed message record.
 
-Everything runs on the main thread, as required by windowing and the SCUA
-partition's ownership rules. Each frame has a handle scope; cached callbacks and queued event payloads remain pinned. Native calls validate arguments and catch C++
-exceptions before they can cross the C ABI. Script or native faults print a
-located error and exit with status 1. Each callback has a one-million-step
-budget and the script has a 64 MiB memory cap.
+The main script and engine work run on the owner thread. Actor workers are opt-in;
+all existing engine natives stay classified main-thread, with copied-data bridge
+operations explicitly classified for parallel reads/deferred results. Each frame has a handle scope; cached callbacks and queued event payloads remain pinned. Native calls validate arguments and catch C++
+exceptions before they can cross the C ABI. Main callback/native faults print a located error and exit with status 1.
+Ordinary actor/task faults are reported once and do not stop other work; a hard
+actor operation-budget failure halts scheduling until reload. Each callback has a one-million-step
+budget and the main script partition has a 64 MiB memory cap. Actor heaps add
+memory usage; the bridge does not impose an aggregate actor-memory quota.
 
 The host grants no general filesystem, network or process capabilities. SCUA's
 `fs` module can read the project's `res:` resources. Saves require an explicit
@@ -284,7 +293,7 @@ paths, including reads made from imported modules.
 ## Contacts, video and advanced examples
 
 `examples/contacts/main.scua` defines `begincontact`, `endcontact`, `presolve` and
-`postsolve`. They run synchronously inside `world_step`, using SCUA 0.37's
+`postsolve`. They run synchronously inside `world_step`, using SCUA 0.38's
 supported reentrant call API. A callback receives a snapshot record with world
 and body/collider IDs, normal, points, material settings and post-solve impulse vectors.
 The record can be saved in script state after the callback returns. `presolve`
@@ -824,12 +833,14 @@ functions are supplied by `lovescua`.
 The macOS feature batch adds CPU image formats/operations/encoders, desktop settings
 and asynchronous dialogs, sensor event delivery, logical saves, staged hot reload,
 optional resource types and an upstream migration audit. The current registry has
-700 native functions in 19 modules. [Runtime details](SCUA_RUNTIME.md) describe the
+710 native functions in 22 modules. [Runtime details](SCUA_RUNTIME.md) describe the
 interfaces and rollback/typing limits; [validation](SCUA_VALIDATION.md) records what
 was actually checked.
 
-- Concurrency is pending the released SCUA 0.38 SDK. Frame control and multicore
-  exist in unmerged upstream PRs; this host still uses 0.37.0 ABI 2.
+- SCUA 0.38 frame control and opt-in multicore are implemented. The default is
+  single-threaded, with bounded actor work and a host clock. See [actor integration](SCUA_ACTORS.md)
+  for phase ordering, fault/reload policy, SDK provenance and current alias limitations.
+  This replaces Lua thread/channel patterns; it does not reproduce their shared-state API.
 - Physical controllers/sensors, microphone capture, audible playback/HRTF and some
   interactive desktop behavior still need human/hardware verification. The real
   CoreAudio output was reopened silently; this is not a listening test.

@@ -106,6 +106,10 @@ template <scua_fn Fn> void guarded(scua_ctx *ctx) noexcept
         if (host(ctx).checking)
             throw std::invalid_argument(
                 "--check does not execute engine functions; initialize resources in load()");
+        if (host(ctx).jobs && host(ctx).jobs->phase != JobPhase::Serial &&
+            host(ctx).actorSerialOnly.count(&guarded<Fn>))
+            throw std::invalid_argument(
+                "this callback operation must run in update/post_update, outside actor work");
         Fn(ctx);
     }
     catch (const std::exception &error)
@@ -255,6 +259,10 @@ inline void registerFunction(scua_partition *p, Host &state, const Binding &b)
          std::strcmp(b.module, "love_joystick") == 0 || std::strcmp(b.module, "love_sensor") == 0) &&
         std::string(b.name).rfind("set_", 0) == 0)
         state.stagingUnsafe.insert(b.fn);
+    if (std::strcmp(b.module, "love_physics") == 0 || key == "love_image.map_pixels")
+        state.actorSerialOnly.insert(b.fn);
+    if (std::string(b.module).rfind("love_job", 0) == 0)
+        state.cpuAllowed.insert(b.fn);
     if (!state.registeredBindings.insert(key).second)
         throw std::runtime_error("duplicate native binding: " + key);
     if (scua_register_module_doc(p, b.module, b.name, b.fn, &state, b.signature, b.doc) != SCUA_OK)

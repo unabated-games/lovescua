@@ -53,6 +53,7 @@ struct Game
         auto p = game->partition.get();
         if (!p)
             throw std::runtime_error("could not allocate game partition");
+        lovescua::configureJobs(p, h, options.jobs, base);
         lovescua::registerBindings(p, h);
         char error[4096]{};
         if (scua_use_project(p, options.script.parent_path().c_str(), error, sizeof(error)) != SCUA_OK)

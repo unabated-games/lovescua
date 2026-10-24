@@ -17,7 +17,7 @@ def main():
         upstream = pathlib.Path(__file__).resolve().parents[1] / "testing/resources"
         for asset in ("font.ttf", "click.ogg", "sample.ogv"):
             (root / "res" / asset).write_bytes((upstream / asset).read_bytes())
-        (root / "scua.toml").write_text('[package]\nscua-version = "0.37"\n')
+        (root / "scua.toml").write_text('[package]\nscua-version = "0.38"\n')
         with wave.open(str(root / "res/tone.wav"), "wb") as output:
             output.setnchannels(1)
             output.setsampwidth(2)

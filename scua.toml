@@ -1,8 +1,11 @@
 [package]
-scua-version = "0.37"
+scua-version = "0.38"
 
 [tooling]
 declarations = [
+  "scua/decls/love_jobs.scua",
+  "scua/decls/love_job_reads.scua",
+  "scua/decls/love_job_commands.scua",
   "scua/decls/love_object.scua",
   "scua/decls/love_audio.scua",
   "scua/decls/love_data.scua",

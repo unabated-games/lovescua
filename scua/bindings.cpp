@@ -386,12 +386,16 @@ void registerBindings(scua_partition *p, Host &state)
     registerPlatformExtras(p, state);
     registerResources(p, state);
     registerGraphicsExtras(p, state);
+    registerJobs(p, state);
 }
 
 const std::vector<std::string> &bindingModules()
 {
     static const std::vector<std::string> modules = {"love_window",
                                                      "love_object",
+                                                     "love_jobs",
+                                                     "love_job_reads",
+                                                     "love_job_commands",
                                                      "love_graphics",
                                                      "love_keyboard",
                                                      "love_mouse",

@@ -1,3 +1,5 @@
+> Current status: SCUA 0.38 actors and opt-in workers are implemented; see the 2026-10-24 batch below. Earlier entries describe their original SDK versions.
+
 # Completed feature conversion batch
 
 User scope: finish texture/GPU features, fonts/rasterizers, particles and remaining
@@ -155,3 +157,42 @@ pixel-change, pause, rewind and EOF/restart checks with a video-only probe. The
 final run also verifies the actual demo's audio-synchronized clock and rendered
 frames advance, using the silent backend. No full graphical
 suite or physical listening check was run. No engine C++ changes were required.
+
+
+## Embedded concurrency batch (2026-10-24)
+
+Completed the single-thread baseline and opt-in multicore integration using SCUA
+0.38.0 ABI 3 from commit `cd480e93d71c4a903f140dbce2a523116b7fe4d4`.
+The reproducible SDK helper snapshots tracked source without changing its checkout;
+both local host builds now link that matching SDK.
+
+- Explicit actor/task drains, host-owned fractional-ms time, pause/time scale and
+  configurable cooperative time/turn budgets. The default is 64 runtime turns/2 ms,
+  with zero workers; `--workers 4` enables the tested multicore path.
+- Owner-thread engine bindings, parallel reads of copied snapshots and deferred
+  scalar results. All physics operations and image mapping stay in serial callbacks
+  to preserve synchronous SCUA reentry. Added post_update after workers join and
+  deferred calls apply, before rendering.
+- Once-only bounded faults, post inbox/backpressure, ordered command drains and
+  runtime-local order keys. Hard operation-budget failure halts scheduling until
+  reload; normal actor faults leave other work running. Reload recreates workers,
+  actor identities and queues while restoring logical state/host time.
+- Eight-agent actor arena: typed messages/records and vector planning; the main
+  script owns Box2D objects and applies results. Native aliases fail inside actors
+  in this SDK, so handlers use canonical native names in the entry script.
+- Updated declarations/inventory: 710 functions in 22 modules. The upstream audit
+  now describes actors as a language replacement for Lua threads/channels, without
+  claiming shared-channel or Lua API equivalence.
+- Fixed definition-only checking to honor explicit save-folder grants, allowing
+  save-enabled examples to be checked without opening windows.
+
+Validation: both builds pass their window-free suites (17 audio-enabled, 15 without
+sound); affected scheduler/checker checks also pass after the final recovery/grant
+changes. All 26 example entry scripts load under --check with an explicit temporary
+save grant, and all 22 generated declaration modules match the executable. One
+10-frame Metal run with four workers passed, produced 80 actor results with zero
+faults, and its screenshot was inspected. No full graphical suite was run.
+
+Design, SDK reproduction and limits: [SCUA_ACTORS.md](SCUA_ACTORS.md).
+Manual SCUA-team handoff: [SCUA_038_HANDOFF.md](SCUA_038_HANDOFF.md).
+Windows/Linux and distribution remain outside this batch.

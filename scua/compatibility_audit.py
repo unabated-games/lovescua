@@ -62,7 +62,7 @@ for cls in 'File FileData Filesystem'.split():
 map_methods('filesystem.Filesystem', '', 'init setFused isFused _setAndroidSaveExternal setSource getSource getCRequirePath setCRequirePath', 'Lua bootstrap, fused packaging or platform/distribution behavior; outside this batch.', 'Excluded')
 map_methods('filesystem.Filesystem', '', 'openNativeFile mountFullPath mountCommonPath unmountFullPath unmountCommonPath getFullCommonPath getWorkingDirectory getUserDirectory getAppdataDirectory getRealDirectory canonicalizeRealPath setSymlinksEnabled areSymlinksEnabled', 'Ambient host-path access is intentionally replaced by grants and selected-file dialog capabilities.', 'Excluded')
 for cls in 'Channel LuaThread ThreadModule'.split():
-    family('thread.'+cls, '', 'Pending SCUA 0.38 integration. No embedded actors/workers enabled on installed 0.37.')
+    FAMILIES['thread.'+cls]=('Replacement','', 'SCUA 0.38 actors/tell/ask/spawn/wait replace Lua threads/channels; host budgets and optional workers are implemented. Lua shared channels/atomic callbacks are not reproduced.')
 map_methods('event.Event', 'love_event.post', 'push', 'Queued main-thread custom events; not a thread-safe actor inbox.')
 map_methods('event.Event', 'love_event.reload', 'restart', 'Reloads SCUA definitions/resources with optional logical snapshot; not process restart.')
 map_methods('event.Event', '', 'pump poll_i wait clear setModalDrawCallback _setDefaultModalDrawCallback', 'Host owns SDL pumping, frame delivery and draw callbacks.', 'Host-owned')
@@ -164,8 +164,6 @@ map_methods('physics.World','','getCallbacks','Game owns the named callback func
 map_methods('physics.World','love_physics.world_configure','setContactFilter setSleepingAllowed','Configure filter callback name / sleeping policy.')
 map_methods('physics.World','love_physics.world_settings','getContactFilter isSleepingAllowed','World settings snapshot.')
 aliases('physics.World','physics',{'translateOrigin':'world_shift_origin','getBodyCount':'world_stats','getJointCount':'world_stats','getContactCount':'world_stats','queryShapesInArea':'world_query_each','getShapesInArea':'world_query','queryBoundingBox':'world_query','rayCast':'world_raycast_each','rayCastAny':'world_raycast','rayCastClosest':'world_raycast'})
-for cls in 'Channel LuaThread ThreadModule'.split():
-    FAMILIES['thread.'+cls]=('Pending','', 'Waiting for released SCUA 0.38; no host concurrency implementation in this batch.')
 
 map_methods('graphics.SpriteBatch','love_graphics.batch_attach_attribute','attachAttribute','Attach a buffer member; obtain a mesh-owned buffer with mesh_vertex_buffer.')
 map_methods('physics.Physics','love_physics.spring_parameters','computeLinearStiffness computeLinearFrequency computeAngularStiffness computeAngularFrequency','Settings select forward/inverse conversion and angular mode; angular coefficients use pixel-squared units.')
@@ -231,7 +229,7 @@ def render():
             '**Named/Adapted** identify a registered destination; signatures and defaults can differ. '
             '**Family** identifies a consolidated record or language facility to inspect; individual Lua properties and overloads are not certified. '
             '**Replacement/Host-owned/Excluded** describe deliberate boundaries. **Gap** is an exposed migration gap, not completed conversion. '
-            'Thread families remain pending 0.38. No Lua source compatibility is promised.\n\n'
+            'Thread families use SCUA 0.38 concurrency replacements. No Lua source compatibility is promised.\n\n'
             '| Disposition | Entries |\n| --- | ---: |\n'+
             '\n'.join(f'| {k} | {v} |' for k,v in sorted(counts.items()))+'\n\n'+
             '\n\n'.join(sections)+'\n')

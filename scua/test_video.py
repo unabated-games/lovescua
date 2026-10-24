@@ -126,7 +126,7 @@ end
 
 with tempfile.TemporaryDirectory(prefix='lovescua-video-') as directory:
     root = Path(directory)
-    (root / 'scua.toml').write_text('[package]\nscua-version="0.37"\n')
+    (root / 'scua.toml').write_text('[package]\nscua-version="0.38"\n')
     (root / 'main.scua').write_text(script)
     command = [host, '--no-input', '--verify']
     if mode == '--controls':

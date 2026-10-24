@@ -9,7 +9,7 @@ import tempfile
 binary=str(pathlib.Path(sys.argv[1]).resolve())
 with tempfile.TemporaryDirectory(prefix='lovescua-check-') as directory:
     root=pathlib.Path(directory)
-    (root/'scua.toml').write_text('[package]\nscua-version="0.37"\n')
+    (root/'scua.toml').write_text('[package]\nscua-version="0.38"\n')
     declarations=root/'decls'
     subprocess.run([binary,'--write-decls',str(declarations)],check=True,capture_output=True,timeout=15)
     for path in declarations.glob('*.scua'):
@@ -28,4 +28,9 @@ with tempfile.TemporaryDirectory(prefix='lovescua-check-') as directory:
             assert run.returncode==0 and 'without a window' in run.stdout,(label,run.stdout,run.stderr)
         else:
             assert run.returncode!=0 and error.lower() in run.stderr.lower(),(label,run.stdout,run.stderr)
-print('PASS: no-window script loading, uncalled callbacks, engine guard, syntax errors and operation budget')
+    (root/'main.scua').write_text('import game_state\nfn load() assert(false) end')
+    denied=subprocess.run([binary,'--check',str(root)],capture_output=True,text=True,timeout=10)
+    assert denied.returncode!=0 and 'capability' in denied.stderr,denied.stderr
+    granted=subprocess.run([binary,'--check','--save-dir',str(root/'saves'),str(root)],capture_output=True,text=True,timeout=10)
+    assert granted.returncode==0 and 'without a window' in granted.stdout,granted.stderr
+print('PASS: no-window definitions, uncalled callbacks, guards, budgets and opt-in save capability')

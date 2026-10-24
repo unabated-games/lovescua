@@ -35,6 +35,7 @@ struct Options
     uint64_t frames = 0;
     double fixedDt = 0;
     bool noInput = false, check = false, headless = false, watch = false, reportResources = false;
+    lovescua::JobSettings jobs;
     std::vector<std::string> mounts;
 };
 
@@ -58,6 +59,8 @@ void usage()
                  "                [--mount RESOURCE_DIRECTORY_OR_PACK] (repeatable)\n"
                  "                [--save-dir DIRECTORY] [--user-id APP_ID] (opt-in saves)\n"
                  "                [--watch] (reload changed SCUA files; preserve snapshot/restore state)\n"
+                 "                [--workers 0..64] [--actor-budget-ms MS] [--actor-turns N]\n"
+                 "                [--actor-order index|reverse|shuffle:SEED]\n"
                  "       lovescua --headless [--frames N] [--verify] GAME (non-graphical bindings)\n"
                  "       lovescua --check GAME.scua|DIRECTORY (no window; loads top-level definitions)\n"
                  "       lovescua --write-decls DIRECTORY\n"
@@ -121,7 +124,8 @@ class Callbacks
         mousemoved{}, wheelmoved{}, textinput{}, textedited{}, focus{}, mousefocus{}, visible{},
         touchpressed{}, touchreleased{}, touchmoved{}, joystickadded{}, joystickremoved{}, joystickpressed{},
         joystickreleased{}, joystickaxis{}, gamepadpressed{}, gamepadreleased{}, gamepadaxis{}, event{},
-        resize{}, quit{}, verify{}, sensorupdated{}, gamepadsensorupdated{}, snapshot{}, restore{};
+        resize{}, quit{}, verify{}, sensorupdated{}, gamepadsensorupdated{}, snapshot{}, restore{},
+        post_update{};
     explicit Callbacks(scua_partition *p, bool requireDraw = true) : p(p)
     {
         Scope scope(p);
@@ -129,6 +133,7 @@ class Callbacks
         snapshot = lookup("snapshot");
         restore = lookup("restore");
         update = lookup("update");
+        post_update = lookup("post_update");
         draw = lookup("draw");
         keypressed = lookup("keypressed");
         resize = lookup("resize");
@@ -214,7 +219,8 @@ class Callbacks
                            sensorupdated,
                            gamepadsensorupdated,
                            snapshot,
-                           restore})
+                           restore,
+                           post_update})
             if (present(value))
                 scua_unpin_global(p, value);
     }
@@ -258,8 +264,8 @@ int main(int argc, char **argv)
 {
     try
     {
-        if (scua_abi_version() != SCUA_ABI_VERSION || scua_version() != ((0u << 16) | (37u << 8)))
-            throw std::runtime_error("this host requires the matching SCUA 0.37.0 SDK and ABI");
+        if (scua_abi_version() != SCUA_ABI_VERSION || scua_version() != ((0u << 16) | (38u << 8)))
+            throw std::runtime_error("this host requires the matching SCUA 0.38.0 SDK and ABI 3");
         Options options;
         bool verify = false;
         for (int i = 1; i < argc; ++i)
@@ -305,6 +311,35 @@ int main(int argc, char **argv)
                     options.fixedDt > 0.25)
                     throw std::invalid_argument("--fixed-dt must be in (0, 0.25]");
             }
+            else if (arg == "--workers")
+            {
+                auto text = value();
+                size_t end = 0;
+                long n = std::stol(text, &end);
+                if (end != text.size() || n < 0 || n > 64)
+                    throw std::invalid_argument("--workers must be in 0..64");
+                options.jobs.workers = n;
+            }
+            else if (arg == "--actor-budget-ms")
+            {
+                auto text = value();
+                size_t end = 0;
+                double n = std::stod(text, &end);
+                if (end != text.size() || !std::isfinite(n) || n < 0 || n > 1000)
+                    throw std::invalid_argument("--actor-budget-ms must be in [0,1000]");
+                options.jobs.maxNs = uint64_t(n * 1000000);
+            }
+            else if (arg == "--actor-turns")
+            {
+                auto text = value();
+                size_t end = 0;
+                long n = std::stol(text, &end);
+                if (end != text.size() || n < 0 || n > 1000000)
+                    throw std::invalid_argument("--actor-turns must be in 0..1000000");
+                options.jobs.maxTurns = n;
+            }
+            else if (arg == "--actor-order")
+                options.jobs.order = value();
             else if (arg == "--renderer")
                 options.renderer = value();
             else if (arg == "--screenshot")
@@ -341,6 +376,8 @@ int main(int argc, char **argv)
         if (verify && !options.frames)
             throw std::invalid_argument("--verify requires --frames");
 
+        if (!options.jobs.maxNs && !options.jobs.maxTurns)
+            throw std::invalid_argument("actor scheduling needs a time or turn limit");
         options.reportResources = verify;
         lovescua::Host host;
         host.ignoreInput = options.noInput;
@@ -371,11 +408,20 @@ int main(int argc, char **argv)
             Partition partition(scua_partition_new(), DestroyPartition{&host, false});
             if (!partition)
                 throw std::runtime_error("could not create SCUA partition");
+            if (scua_set_drain_mode(partition.get(), SCUA_DRAIN_EXPLICIT) != SCUA_OK ||
+                scua_set_clock(partition.get(), 0) != SCUA_OK)
+                throw std::runtime_error("could not configure definition-only scheduler");
             lovescua::registerBindings(partition.get(), host);
             char error[4096] = {};
             if (scua_use_project(partition.get(), options.script.parent_path().c_str(), error,
                                  sizeof(error)) != SCUA_OK)
                 throw std::runtime_error(error);
+            if (!options.saveDirectory.empty() || !options.userId.empty())
+                if (scua_grant_user(partition.get(),
+                                    options.userId.empty() ? nullptr : options.userId.c_str(),
+                                    options.saveDirectory.empty() ? nullptr : options.saveDirectory.c_str(),
+                                    0, error, sizeof(error)) != SCUA_OK)
+                    throw std::runtime_error(error);
             if (scua_add_module_path(partition.get(), runtimeModules().c_str()) != SCUA_OK)
                 throw std::runtime_error("could not add LÖVE module path");
             for (const auto &mount : options.mounts)
@@ -413,8 +459,11 @@ int main(int argc, char **argv)
                 game->host.elapsed += dt;
                 ++game->host.frameCount;
                 game->host.averageDelta = game->host.elapsed / game->host.frameCount;
+                lovescua::advanceJobs(game->host, dt);
                 auto arg = scua_num(game->partition.get(), dt);
                 game->callbacks->call(game->callbacks->update, "update", &arg, 1);
+                lovescua::runJobs(game->host);
+                game->callbacks->call(game->callbacks->post_update, "post_update", &arg, 1);
                 ++executed;
             }
             if (verify)
@@ -713,8 +762,11 @@ int main(int argc, char **argv)
                 game->host.elapsed += dt;
                 ++game->host.frameCount;
                 game->host.averageDelta = game->host.elapsed / game->host.frameCount;
+                lovescua::advanceJobs(game->host, dt);
                 auto delta = scua_num(game->partition.get(), dt);
                 game->callbacks->call(game->callbacks->update, "update", &delta, 1);
+                lovescua::runJobs(game->host);
+                game->callbacks->call(game->callbacks->post_update, "post_update", &delta, 1);
                 if (game->host.quitting)
                     break;
                 graphics->origin();

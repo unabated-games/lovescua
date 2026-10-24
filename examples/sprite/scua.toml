@@ -1,5 +1,5 @@
 [package]
-scua-version = "0.37"
+scua-version = "0.38"
 
 [tooling]
 declarations = [

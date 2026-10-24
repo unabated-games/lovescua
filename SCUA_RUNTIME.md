@@ -1,8 +1,7 @@
 # CPU images, desktop services and game lifecycle
 
-These additions target macOS and the installed SCUA 0.37.0 ABI 2 SDK. Actors,
-workers and frame budgets are pending the released 0.38 SDK; no proposed ABI is
-compiled into this host. Windows/Linux and distribution work are outside this batch.
+These additions target macOS and the SCUA 0.38.0 ABI 3 SDK. Bounded actors,
+host-driven time and opt-in workers are implemented; see [SCUA_ACTORS.md](SCUA_ACTORS.md). Windows/Linux and distribution work are outside this batch.
 
 ## Run without a window
 

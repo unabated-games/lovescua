@@ -1,0 +1,122 @@
+import love
+import json
+import math
+
+-- Only copied messages and ids enter actors. Physics objects belong to the main script.
+record Think { step: int, target: vec2 }
+partition Agent
+  state id = 0
+  on Init(value) id = value end
+  on Think(job: Think)
+    let snapshot = love_job_reads.read(id)
+    let direction = job.target - snapshot.xy
+    let velocity = vec2(0,0)
+    if direction.length()>4 then velocity=direction.normalize()*95 end
+    -- Isolated CPU work: no engine objects and no shared mutable state.
+    let checksum=0
+    for k in 0:1200 do checksum=(checksum+k*17+id)%997 end
+    velocity=velocity*(0.95+checksum/20000)
+    love_job_commands.submit(id,job.step,velocity.x,velocity.y)
+  end
+end
+record Entity { id: int, body: any, brain: any, waiting: bool = false, step: int = -1 }
+let entities: {Entity}=[]
+let world=nil
+let ticks=0
+let results=0
+let phase=0.0
+let faults=[]
+fn load()
+  world=love.physics.new_world(vec2(0,0))
+  for i in 0:8 do
+    let angle=i*6.283185/8
+    let body=love.physics.new_body(world,vec2(480+math.cos(angle)*180,320+math.sin(angle)*180),"dynamic")
+    love.physics.new_circle(body,13,1)
+    love.physics.body_set_damping(body,0.5,0.5)
+    let brain=Agent()
+    tell brain.Init(i)
+    entities.push({id=i,body=body,brain=brain})
+    love.jobs.set_order_key(i,i)
+  end
+end
+fn update(dt: float)
+  ticks=ticks+1
+  if not love.jobs.info().paused then
+    phase=phase+dt
+    let pending=false
+    for entity in entities do
+      if entity.waiting then pending=true end
+    end
+    for entity in entities do
+      let position=love.physics.body_position(entity.body)
+      love.jobs.publish(entity.id,vec4(position.x,position.y,0,0))
+      if not pending then
+        let angle=phase*0.6+entity.id*6.283185/8
+        let job: Think={step=ticks,target=vec2(480+math.cos(angle)*210,320+math.sin(angle)*180)}
+        tell entity.brain.Think(job)
+        entity.waiting=true
+      end
+    end
+  end
+end
+fn post_update(dt: float)
+  for command in love.jobs.commands() do
+    let entity=entities[command.id]
+    if command.step>entity.step then
+      love.physics.body_set_velocity(entity.body,command.position)
+      entity.step=command.step
+      entity.waiting=false
+      results=results+1
+    end
+  end
+  faults=love.jobs.faults()
+  if not love.jobs.info().paused then love.physics.world_step(world,dt) end
+end
+fn snapshot() -> string
+  let positions=[]
+  for entity in entities do
+    let p=love.physics.body_position(entity.body)
+    positions.push({x=p.x,y=p.y})
+  end
+  return json.encode({ticks=ticks,phase=phase,positions=positions})
+end
+fn restore(encoded: string)
+  match json.decode(encoded)
+    Ok(saved) -> do
+      ticks=saved.ticks
+      phase=saved.phase
+      for i in 0:entities.len() do
+        let p=saved.positions[i]
+        love.physics.body_set_position(entities[i].body,vec2(p.x,p.y))
+      end
+    end
+    Error(reason) -> assert(false,tostring(reason))
+  end
+end
+fn keypressed(key: string)
+  if key=="Space" then love.jobs.set_paused(not love.jobs.info().paused) end
+  if key=="R" then love.event.reload() end
+  if key=="Escape" then love.event.quit() end
+end
+fn draw()
+  let report=love.jobs.info()
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.print("Actor arena / Space pauses / R reloads / --workers 4 enables multicore",vec2(24,24))
+  love.graphics.print(`Workers: {report.workers} / actor time: {report.clock_ms}ms / turns: {report.turns} / results: {results}`,vec2(24,54))
+  love.graphics.print(`Budget hit: {report.budget_hit} / ready: {report.more_ready} / faults: {report.fault_count}`,vec2(24,80))
+  for entity in entities do
+    let position=love.physics.body_position(entity.body)
+    love.graphics.set_color(vec4(0.25+entity.id/16,0.85-entity.id/20,0.95,1))
+    love.graphics.circle("fill",position,13)
+  end
+end
+fn verify()
+  assert(results>0,"actors must produce results")
+  assert(love.jobs.info().fault_count==0,"actors must not fault")
+  assert(love.jobs.info().deferred_pending==0,"deferred calls applied before post_update")
+  for entity in entities do
+    let p=love.physics.body_position(entity.body)
+    assert(p.x>0 and p.x<960 and p.y>0 and p.y<640)
+  end
+  print("PASS: copied snapshots, actor decisions and serial physics/results")
+end

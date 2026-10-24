@@ -1,6 +1,19 @@
-set(SCUA_ROOT "" CACHE PATH "SCUA 0.37 SDK (contains include/scua.h and lib/libscua.a)")
+set(SCUA_ROOT "" CACHE PATH "SCUA 0.38 SDK (contains include/scua.h and lib/libscua.a)")
+if(SCUA_ROOT)
+    get_filename_component(SCUA_ROOT "${SCUA_ROOT}" ABSOLUTE)
+    set(SCUA_INCLUDE_DIR "${SCUA_ROOT}/include" CACHE PATH "SCUA SDK headers" FORCE)
+    set(SCUA_LIBRARY "${SCUA_ROOT}/lib/libscua.a" CACHE FILEPATH "SCUA SDK library" FORCE)
+    if(NOT EXISTS "${SCUA_INCLUDE_DIR}/scua.h" OR NOT EXISTS "${SCUA_LIBRARY}")
+        message(FATAL_ERROR "SCUA_ROOT must contain the matching 0.38 ABI 3 include/scua.h and lib/libscua.a")
+    endif()
+endif()
 find_path(SCUA_INCLUDE_DIR scua.h HINTS "${SCUA_ROOT}/include" REQUIRED)
 find_library(SCUA_LIBRARY NAMES scua HINTS "${SCUA_ROOT}/lib" REQUIRED)
+file(READ "${SCUA_INCLUDE_DIR}/scua.h" scua_sdk_header)
+if(NOT scua_sdk_header MATCHES "#define SCUA_VERSION_MINOR 38[\r\n]" OR
+   NOT scua_sdk_header MATCHES "#define SCUA_ABI_VERSION 3[\r\n]")
+    message(FATAL_ERROR "LoveSCUA requires matching SCUA 0.38.0 / ABI 3 headers and library; update SCUA_ROOT")
+endif()
 add_library(scua_runtime STATIC IMPORTED)
 set_target_properties(scua_runtime PROPERTIES
     IMPORTED_LOCATION "${SCUA_LIBRARY}"
@@ -42,7 +55,7 @@ set(scua_thread_support
     ../src/modules/thread/sdl/Thread.cpp)
 add_executable(lovescua
     main.cpp bindings.cpp graphics.cpp platform.cpp objects.cpp math.cpp
-    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp
+    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp jobs.cpp
     ${scua_thread_support}
     ../src/modules/video/VideoStream.cpp
     ../src/modules/video/theora/OggDemuxer.cpp
@@ -84,6 +97,11 @@ if(BUILD_TESTING)
     add_dependencies(lovescua scua_test_input)
     add_executable(scua_test_dialogs test_dialogs.cpp ${scua_thread_support})
     target_link_libraries(scua_test_dialogs PRIVATE ${scua_host_libraries})
+    add_executable(scua_test_jobs test_jobs.cpp jobs.cpp ${scua_thread_support})
+    target_link_libraries(scua_test_jobs PRIVATE ${scua_host_libraries})
+    add_test(NAME scua_jobs_native_serial COMMAND scua_test_jobs 0)
+    add_test(NAME scua_jobs_native_workers COMMAND scua_test_jobs 4)
+    set_tests_properties(scua_jobs_native_serial scua_jobs_native_workers PROPERTIES TIMEOUT 20 LABELS "no-window")
     add_test(NAME scua_dialogs COMMAND scua_test_dialogs)
     set_tests_properties(scua_dialogs PROPERTIES TIMEOUT 15 LABELS "no-window")
     add_test(NAME scua_virtual_input COMMAND scua_test_input "${love_SOURCE_DIR}/examples/platform")
@@ -119,6 +137,10 @@ if(BUILD_TESTING)
     add_test(NAME scua_state_reload COMMAND lovescua --headless --verify --frames 3 --save-dir "${CMAKE_BINARY_DIR}/test-state-saves" "${love_SOURCE_DIR}/examples/state_reload")
     add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
+    add_test(NAME scua_jobs COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_jobs.py" "$<TARGET_FILE:lovescua>")
+    add_test(NAME scua_actor_demo_serial COMMAND lovescua --headless --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")
+    add_test(NAME scua_actor_demo_workers COMMAND lovescua --headless --workers 4 --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")
+    set_tests_properties(scua_jobs scua_actor_demo_serial scua_actor_demo_workers PROPERTIES TIMEOUT 30 LABELS "no-window")
     add_test(NAME scua_video_controls COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_video.py" "$<TARGET_FILE:lovescua>" --controls)
     set_tests_properties(scua_video_controls PROPERTIES TIMEOUT 15 LABELS "no-window")

@@ -81,7 +81,7 @@ def main():
         project = pathlib.Path(directory)
         resources = project / "res"
         resources.mkdir()
-        (project / "scua.toml").write_text('[package]\nscua-version = "0.37"\n')
+        (project / "scua.toml").write_text('[package]\nscua-version = "0.38"\n')
         shutil.copy(root / "testing/resources/love.png", resources / "love.png")
         colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255), (255, 255, 0, 255)]
         pixels = []

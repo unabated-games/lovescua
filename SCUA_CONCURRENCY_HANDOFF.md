@@ -1,3 +1,5 @@
+> Historical 0.37 handoff. The 0.38 implementation is described in [SCUA_ACTORS.md](SCUA_ACTORS.md); current upstream observations are in [SCUA_038_HANDOFF.md](SCUA_038_HANDOFF.md).
+
 # LoveSCUA: embedded concurrency handoff
 
 Date: 2026-10-21. For the SCUA runtime agent; investigation and discussion only.

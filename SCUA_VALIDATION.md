@@ -1,3 +1,5 @@
+> Current SDK and concurrency results are in the 2026-10-24 section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
+
 # macOS conversion validation — 2026-10-22
 
 Environment: arm64, macOS 27.0.1 (26A434), installed SCUA 0.37.0 embedding SDK
@@ -141,3 +143,50 @@ pixels at different times, paused, rewound and after EOF/restart. It checks that
 motion continues beyond two seconds and that rewind restores the initial frame.
 The normal demo's embedded-audio path also loads, draws and passes its verification.
 No other graphical scenes or physical audio listening were performed.
+
+
+## Embedded actors / SCUA 0.38 — 2026-10-24
+
+Both audio-enabled and audio-disabled hosts compile and run with SCUA 0.38.0 ABI 3.
+The SDK was built from immutable commit `cd480e93d71c4a903f140dbce2a523116b7fe4d4`
+with Zig 0.16.0, ReleaseFast, dynamic FFI disabled. The checked-in SDK helper was
+run end to end successfully. This is a local native arm64/macOS 27.0.1 SDK; the
+linker notes its minimum OS is 27.0.1 while the host target is 27.0. These checks
+do not establish compatibility with older macOS releases or distributable builds.
+The current host links installed SDL 3.4.18, with pinned 3.2.28 as fallback.
+
+Window-free CTest suites passed: 17 checks with audio, 15 without. These include
+CPU images, state, lifecycle, codecs where enabled, dialogs, keyboard/video controls,
+motion monitor, definition checks and the migration audit. After the final checker
+fix and hard-halt recovery regression, the two affected checks passed in both builds.
+
+New embedding regressions cover:
+
+- Work carried between frames with explicit drains, bounded turns, no automatic
+  timer fast-forward, fractional clock accumulation, pause and time scale.
+- Ordinary faults reported once while updates continue; deferred validation faults;
+  hard operation-budget halt/resume rejection and successful reload recovery.
+- Copied snapshot/results, per-drain stable ordering under index/reverse/shuffle
+  schedules, local actor userdata cleanup and serial Box2D callback reentry.
+- Actor reload preserving logical state and host clock while rebuilding worker pools.
+- Real foreign-thread text posts, bounded-inbox backpressure, default-main-thread
+  affinity, actual worker execution, parallel-phase API refusal, deferred application
+  and checked worker shutdown (native C++ fixtures, workers 0 and 4).
+- The actual actor arena, headless for 30 frames in each worker mode.
+
+All 26 example entry scripts load under --check with an explicit temporary save
+grant; callbacks are not executed by that check. All 22 declaration modules match
+fresh output from the executable. The checker regression also confirms that an
+ungranted save capability is rejected.
+
+Exactly one graphical scene ran for this batch: the actor arena on Metal, four
+workers, ten fixed-dt frames, input disabled, OpenAL silent backend. Its verification
+passed and its screenshot shows eight agents, 80 results and zero faults. The first
+sandboxed attempt could not reach WindowServer; the successful run had desktop
+access. No other graphical scenes or full graphical suite were run.
+
+No multicore speedup benchmark or hard wall-time deadline is claimed. Native alias
+reconstruction inside actor heaps remains an SDK limitation; canonical names work.
+The hard operation-budget path is handled at scheduler scope until reload. See
+[actor design/limits](SCUA_ACTORS.md) and [manual upstream handoff](SCUA_038_HANDOFF.md).
+Windows/Linux, distribution and the earlier hardware/manual checks remain separate.

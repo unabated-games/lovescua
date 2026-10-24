@@ -1,11 +1,13 @@
 // SCUA integration for this altered LÖVE fork. See ../license.txt.
 #pragma once
 
+#include "jobs.h"
 #include <array>
 #include <scua.h>
 #include <set>
-static_assert(SCUA_VERSION_MAJOR == 0 && SCUA_VERSION_MINOR == 37 && SCUA_VERSION_PATCH == 0,
-              "Build lovescua with the SCUA 0.37.0 SDK");
+static_assert(SCUA_ABI_VERSION == 3, "SCUA ABI 3 is required");
+static_assert(SCUA_VERSION_MAJOR == 0 && SCUA_VERSION_MINOR == 38 && SCUA_VERSION_PATCH == 0,
+              "Build lovescua with the SCUA 0.38.0 SDK");
 #include "graphics/Graphics.h"
 #include "window/sdl/Window.h"
 
@@ -78,11 +80,12 @@ struct Host
     love::audio::Audio *audio = nullptr;
     love::sensor::Sensor *sensors = nullptr;
     love::mouse::Mouse *mouse = nullptr;
+    std::shared_ptr<Jobs> jobs;
     bool quitting = false;
     bool drawing = false;
     bool checking = false;
     bool cpuOnly = false, reloadRequested = false, staging = false;
-    std::set<scua_fn> stagingUnsafe;
+    std::set<scua_fn> stagingUnsafe, actorSerialOnly;
     std::string reloadError;
     std::shared_ptr<DialogInbox> dialogs;
     std::set<scua_fn> cpuAllowed;

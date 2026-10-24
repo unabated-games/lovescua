@@ -1,0 +1,20 @@
+import love_jobs
+import love_job_reads
+import love_job_commands
+-- Main-script facade. In actor handlers use the canonical native namespaces
+-- love_job_reads.read / love_job_commands.submit; imported aliases are not rebound.
+fn publish(id: int, snapshot: vec4) love_jobs.publish(id,snapshot) end
+fn read(id: int) -> vec4 return love_job_reads.read(id) end
+fn submit(id: int, step: int, x: float, y: float) love_job_commands.submit(id,step,x,y) end
+fn commands() return love_jobs.commands() end
+fn info() return love_jobs.info() end
+fn faults() return love_jobs.faults() end
+fn set_paused(value: bool) love_jobs.set_paused(value) end
+fn set_time_scale(scale: float) love_jobs.set_time_scale(scale) end
+fn set_order_key(actor_index: int,key: int) love_jobs.set_order_key(actor_index,key) end
+fn post_text(actor_index: int,message: string) -> bool return love_jobs.post_text(actor_index,message) end
+return {
+  publish=publish, read=read, submit=submit, commands=commands, info=info, faults=faults,
+  set_paused=set_paused, set_time_scale=set_time_scale,
+  set_order_key=set_order_key, post_text=post_text,
+}
