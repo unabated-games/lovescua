@@ -1,3 +1,7 @@
+> Resolved on 2026-10-25: SCUA PR #833 makes the compiled script own its source.
+> LoveSCUA now pins PR head `85814a6491eb2db3d23dce79efc0c93dfb6024a1` (still
+> reporting 0.38.0 / ABI 3). The original report below is historical.
+
 # LoveSCUA → SCUA: follow-up verification and file-loaded fault names
 
 Verified against upstream main commit `65cabd9600383b0fda82909b7c72937565e2350d`,
@@ -17,9 +21,9 @@ op_budget=0, finite resumptions, unhandled Error notifications and refused text
 messages have dedicated host regressions. Error notifications retain their own
 `kind="error"` in our script records.
 
-## Small reproduction: file loading corrupts the partition-name bytes
+## Original reproduction: file loading corrupted the partition-name bytes
 
-The remaining name issue reproduces without LÖVE, C++, native bindings, imports,
+The name issue reproduced without LÖVE, C++, native bindings, imports,
 or persisted actors. [scua/repro_fault_name.c](scua/repro_fault_name.c) compares
 `scua_load_script` using a static string with `scua_load_script_file` using exactly
 the same bytes. It creates a `Broken` partition, calls `go()` to send its crashing
@@ -37,9 +41,11 @@ clang -std=c11 -I build/scua-sdk-0.39-preview/include \
 
 The path is a scratch file, exclusively created and removed by the diagnostic.
 Exit 1 means at least one case did not report `Broken`; exit 2 is a setup error.
-It is intentionally outside the passing CTest suite while this reproduces.
+The current version is registered as `scua_fault_names` in the window-free CTest
+suite. It also overwrites/frees a heap input buffer immediately after loading;
+all six cases must report `Broken` for exit 0.
 
-Observed output (the error text is `line 2: deliberate fault` in every case):
+Original failing output at `65cabd96` (the error text is `line 2: deliberate fault` in every case):
 
 ```text
 memory workers=0 load=0 call=0 drain=6 partition_len=6 partition_hex=42726f6b656e
@@ -52,13 +58,29 @@ file workers=4 load=0 call=0 drain=6 partition_len=6 partition_hex=000000000000
 identity still arrive. This explains our earlier apparently empty terminal name:
 the length is six, but the bytes are NULs. Our C++ hook also copies the bytes during
 the callback. Loading mode, rather than delayed copying, distinguishes the two
-cases. A source-buffer lifetime difference in file loading is a hypothesis to check,
-not an established diagnosis.
+cases. The SCUA team confirmed that compiled names borrowed the source bytes freed
+by file loading. PR #833 makes the loaded program own a copy, also allowing hosts
+to release their scua_load_script input immediately after the load.
 
-LoveSCUA keeps slot/generation/epoch and does not depend on the partition name for
-scheduling. Host regressions preserve copied byte lengths and identity without
-claiming the file-loaded name is correct. Native tests using in-memory source do
-assert the correct name. Please run this diagnostic against your next candidate;
-a successful fix should make all four names `Broken` and return 0.
+## Verification after PR #833
+
+The fixed SDK was built from `85814a6491eb2db3d23dce79efc0c93dfb6024a1`, with the
+same Zig/optimization/ABI settings. The C regression now includes static memory,
+overwritten/freed caller memory, and file loading, with 0 and 4 workers. Every case
+reports partition_hex=42726f6b656e (Broken), and the program exits 0 in both host
+builds. It is now a passing window-free CTest.
+Volatile writes poison the caller's buffer before freeing it, so the overwrite is
+not optimized away. The fault hook still copies the bytes during the callback.
+
+```sh
+ctest --test-dir build -R '^scua_fault_names$' --output-on-failure
+```
+
+The host's file-loaded script regressions now require the full partition names
+(Broken, Spin, NoAmmo and Tagged), replacing the temporary length-only assertions.
+The pinned SDK still reports version 0.38.0; it is a source-built 0.39 preview,
+not a released 0.39 SDK. PR #833 had not merged at verification time. The complete
+window-free suites passed: 18 checks with audio and 16 without audio. No windows
+were opened.
 
 This document is for manual forwarding. No external issue or message was sent.

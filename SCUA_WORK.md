@@ -1,4 +1,4 @@
-> Current status: the pinned SCUA 0.39 preview fixes are integrated; see the latest follow-up below. Earlier entries retain their original SDK behavior.
+> Current status: the pinned SCUA 0.39 preview includes PR #833 source ownership; all reported embedding issues are resolved in our checks. See the latest follow-up below. Earlier entries retain their original SDK behavior.
 
 # Completed feature conversion batch
 
@@ -229,3 +229,24 @@ The previous 0.38 halt/alias limitations above are historical. Current behavior,
 SDK build instructions and limits are in SCUA_ACTORS.md. The new manually
 forwardable handoff, reproduction source and observed output are in
 [SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md). Windows/Linux/distribution remain excluded.
+
+
+## Source ownership / PR #833 (2026-10-25)
+
+Pinned the SDK to PR #833 head `85814a6491eb2db3d23dce79efc0c93dfb6024a1`,
+containing source-ownership fix `0160c979`. The PR was fetched into the isolated
+build mirror, without changing the sibling SCUA checkout. It was not yet merged
+into upstream main when fetched. The preview still reports 0.38.0 / ABI 3.
+
+The compiled script now owns the source bytes its names borrow. Rebuilt both
+hosts and promoted repro_fault_name.c to the window-free scua_fault_names CTest.
+It checks static source, an overwritten/freed caller buffer, and file loading,
+with both 0 and 4 workers. All six cases report Broken and exit 0. Volatile writes
+ensure the caller-buffer overwrite survives optimization. Script actor/error/post
+regressions now assert complete partition names instead of accepting byte lengths.
+
+Validation: all 18 audio-enabled and 16 audio-disabled window-free checks pass.
+No graphical scenes were run. Updated SDK reproduction instructions and marked
+the historical name handoff resolved; there is no remaining failure from our
+reported embedding issues in these checks. Platform/distribution exclusions and
+manual hardware checks remain unchanged.

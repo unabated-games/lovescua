@@ -842,7 +842,7 @@ was actually checked.
 
 - SCUA frame control and opt-in multicore are implemented using the 0.39 preview fixes. The default is
   single-threaded, with bounded actor work and a host clock. See [actor integration](SCUA_ACTORS.md)
-  for phase ordering, fault/reload policy, SDK provenance and the outstanding file-loaded fault-name issue.
+  for phase ordering, fault/reload policy, SDK provenance and source-ownership regression coverage.
   This replaces Lua thread/channel patterns; it does not reproduce their shared-state API.
 - Physical controllers/sensors, microphone capture, audible playback/HRTF and some
   interactive desktop behavior still need human/hardware verification. The real

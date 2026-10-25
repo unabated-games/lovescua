@@ -74,8 +74,7 @@ end
     run('host clock, fractional milliseconds, waits and pause',timer)
     run('tasks with multicore enabled',timer,options=('--workers','4'))
 
-    # File-loaded partition names have the known SDK issue reproduced by repro_fault_name.c.
-    # Keep copied byte lengths/identity coverage here; do not claim the names are correct.
+    # File-loaded names must remain intact after loading; the SDK owns its source.
     fault='''import love
 partition Broken
   on Crash() assert(false,"deliberate actor fault") end
@@ -88,7 +87,7 @@ fn update(dt) frame=frame+1 end
 fn post_update(dt)
   let errors=love.jobs.faults()
   reports=reports+errors.len()
-  if frame==1 then assert(errors.len()==1 and errors[0].kind=="actor" and errors[0].partition.len()==6) end
+  if frame==1 then assert(errors.len()==1 and errors[0].kind=="actor" and errors[0].partition=="Broken") end
 end
 fn verify() assert(reports==1 and frame==6 and love.jobs.info().fault_count==1) end
 '''
@@ -311,7 +310,7 @@ fn load() tell spin.Go() tell fine.Go() end
 fn update(dt) frame=frame+1 end
 fn post_update(dt)
   for fault in love.jobs.faults() do
-    assert(fault.kind=="actor" and fault.partition.len()==4 and fault.actor_slot==0)
+    assert(fault.kind=="actor" and fault.partition=="Spin" and fault.actor_slot==0)
     assert(fault.actor_generation>=0 and fault.message!="")
     reports.push(fault)
     tell spin.Ping()
@@ -323,7 +322,7 @@ fn post_update(dt)
 end
 fn verify()
   assert(frame==16 and reports.len()==1 and love.jobs.info().fault_count==1)
-  assert(reports[0].partition.len()==4 and reports[0].message!="","fault strings survive later drains")
+  assert(reports[0].partition=="Spin" and reports[0].message!="","fault strings survive later drains")
   assert(saw_spin and saw_fine and not love.jobs.info().paused)
 end
 '''
@@ -342,7 +341,7 @@ let resumed=false
 fn load() tell actor.Go() end
 fn post_update(dt)
   for fault in love.jobs.faults() do
-    assert(fault.kind=="error" and fault.partition.len()==6 and fault.message.len()>0)
+    assert(fault.kind=="error" and fault.partition=="NoAmmo" and fault.message.len()>0)
     seen.push(fault)
     tell actor.Ping()
   end
@@ -366,12 +365,12 @@ fn load()
 end
 fn post_update(dt)
   for fault in love.jobs.faults() do
-    assert(fault.kind=="actor" and fault.partition.len()==6 and fault.message!="")
+    assert(fault.kind=="actor" and fault.partition=="Tagged" and fault.message!="")
     seen.push(fault)
   end
   if love.jobs.commands().len()>0 then completed=true end
 end
-fn verify() assert(seen.len()==1 and seen[0].partition.len()==6 and completed) end
+fn verify() assert(seen.len()==1 and seen[0].partition=="Tagged" and completed) end
 '''
     for workers in (0,4):
         options=('--workers',str(workers))

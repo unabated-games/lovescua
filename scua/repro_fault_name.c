@@ -1,9 +1,9 @@
-/* Standalone SDK diagnostic: file-loaded fault names differ from memory-loaded
- * names in SCUA commit 65cabd96 (0.39 preview). Copies bytes INSIDE the hook.
- * Build/run commands and observed output: SCUA_039_HANDOFF.md.
- * Not a passing CTest: exits 1 while this upstream issue reproduces. */
+/* Source ownership regression, originally the standalone SCUA fault-name repro.
+ * Covers static source, overwritten/freed host buffers and file loading, with
+ * zero and four workers. Copies fault bytes INSIDE the hook. See SCUA_039_HANDOFF.md. */
 #include <scua.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static unsigned char name[128];
@@ -22,13 +22,24 @@ static void on_fault(void *ctx, const scua_fault_info *f)
         memcpy(name, f->partition, name_len);
 }
 
-static int run(const char *path, int workers)
+static int run(const char *path, int workers, int release_input)
 {
     scua_partition *p = scua_partition_new();
     char err[1024] = {0};
     name_len = 0;
     if (!p)
         return 0;
+    char *owned = NULL;
+    if (release_input)
+    {
+        owned = malloc(sizeof(source));
+        if (!owned)
+        {
+            scua_partition_free(p);
+            return 0;
+        }
+        memcpy(owned, source, sizeof(source));
+    }
     int setup = scua_set_drain_mode(p, SCUA_DRAIN_EXPLICIT);
     if (!setup)
         setup = scua_set_clock(p, 0);
@@ -36,16 +47,27 @@ static int run(const char *path, int workers)
         setup = scua_set_workers(p, workers);
     if (!setup)
         setup = scua_set_fault_hook(p, on_fault, NULL);
-    int loaded = setup ? setup
-                 : path
-                     ? scua_load_script_file(p, path, 64u << 20, 1000000, err, sizeof(err))
-                     : scua_load_script(p, source, sizeof(source) - 1, 64u << 20, 1000000, err, sizeof(err));
+    int loaded = setup  ? setup
+                 : path ? scua_load_script_file(p, path, 64u << 20, 1000000, err, sizeof(err))
+                        : scua_load_script(p, owned ? owned : source, sizeof(source) - 1, 64u << 20, 1000000,
+                                           err, sizeof(err));
+    if (owned)
+    {
+        /* A loaded script must not retain borrowed slices of this buffer. */
+        volatile char *reused = owned;
+        for (size_t i = 0; i < sizeof(source); ++i)
+            reused[i] = (char)0xaa;
+        free(owned);
+    }
     int called = loaded ? loaded : scua_pcall(p, scua_get_global(p, "go"), NULL, 0, NULL, err, sizeof(err));
     scua_turn_budget b = {sizeof(b), 64, 0};
     scua_turn_report r = {sizeof(r)};
     int drained = called ? called : scua_run_turns(p, &b, &r, err, sizeof(err));
     printf("%s workers=%d load=%d call=%d drain=%d partition_len=%zu partition_hex=",
-           path ? "file" : "memory", workers, loaded, called, drained, name_len);
+           path            ? "file"
+           : release_input ? "released-memory"
+                           : "memory",
+           workers, loaded, called, drained, name_len);
     for (size_t i = 0; i < name_len; ++i)
         printf("%02x", name[i]);
     printf(" error=%s\n", err);
@@ -72,9 +94,10 @@ int main(int argc, char **argv)
     int correct = 0;
     for (int workers = 0; workers <= 4; workers += 4)
     {
-        correct += run(NULL, workers);
-        correct += run(argv[1], workers);
+        correct += run(NULL, workers, 0);
+        correct += run(NULL, workers, 1);
+        correct += run(argv[1], workers, 0);
     }
     remove(argv[1]);
-    return correct == 4 ? 0 : 1;
+    return correct == 6 ? 0 : 1;
 }

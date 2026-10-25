@@ -1,4 +1,4 @@
-> Current SDK and concurrency results are in the SCUA 0.39 preview section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
+> Current SDK and concurrency results are in the PR #833 source-ownership section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
 
 # macOS conversion validation — 2026-10-22
 
@@ -226,3 +226,27 @@ building. The standalone known-issue diagnostic is excluded from these pass coun
 See [current design](SCUA_ACTORS.md) and the [manual SDK handoff](SCUA_039_HANDOFF.md).
 The earlier global-halt/alias constraints in this document are historical and no
 longer describe the current host. No graphical scenes were run for this follow-up.
+
+
+## PR #833 source ownership — 2026-10-25
+
+The fixed preview SDK is built from PR head
+`85814a6491eb2db3d23dce79efc0c93dfb6024a1` (fix `0160c979`), using the existing
+SDK helper, Zig 0.16.0, ReleaseFast, ABI 3 and FFI disabled. It still reports
+0.38.0. The PR was not merged at verification time; the exact snapshot is fetched
+into the isolated build mirror. Both hosts link this matching header/library pair.
+The sibling SCUA checkout was not changed.
+
+The former diagnostic is now a passing CTest named scua_fault_names in both builds.
+It checks static string input, overwritten/freed caller-owned input immediately
+after load, and file input, each with 0 and 4 workers. All six cases print
+partition_hex=42726f6b656e (Broken) and the program exits 0. The overwrite uses
+volatile stores so the compiler cannot discard it. The hook copies names during
+the callback, as before. File-loaded script regressions also assert Broken, Spin,
+NoAmmo and Tagged by value, replacing the temporary length-only assertions.
+
+All 18 window-free checks pass in the audio-enabled build, and all 16 pass in the
+audio-disabled build. This includes actor faults, Error/type-mismatch notifications,
+reload, budgets, worker affinity/posting, CPU images, script checking and lifecycle
+regressions. No graphical tests were run for this update. The earlier record of a
+failing name diagnostic is historical and superseded by these results.

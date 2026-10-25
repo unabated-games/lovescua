@@ -139,10 +139,11 @@ with `SCUA_ERR_TYPE`. Use typed `tell` for tagged handlers, or a generic text ac
 for external text posts.
 
 `faults()` retains at most 64 records; `fault_count` and `dropped_faults` expose
-overflow. Partition/message bytes are copied inside the hook. There is a remaining
-SDK issue with names from file-loaded scripts: six NUL bytes instead of `Broken`
-in a standalone reproduction. Runtime slot/generation/epoch remain available;
-do not rely on the displayed name. See [current upstream handoff](SCUA_039_HANDOFF.md).
+overflow. Partition/message bytes are copied inside the hook. The pinned SDK includes
+PR #833: a loaded script owns its source, so partition names survive file loading
+and the host overwriting/freeing its input buffer. The standalone C regression
+checks all three source lifetimes with zero and four workers. See the
+[resolved upstream handoff](SCUA_039_HANDOFF.md).
 Unexpected scheduler API errors and main callback faults remain fatal.
 
 Reload joins/frees the old runtime and rebuilds its actors, snapshots and queues.
@@ -154,8 +155,8 @@ the limits described in SCUA_RUNTIME.md.
 
 ## SDK and verification
 
-The checked local SDK was built from SCUA commit
-`65cabd9600383b0fda82909b7c72937565e2350d`, using Zig 0.16.0, ReleaseFast, ABI 3,
+The checked local SDK was built from SCUA PR #833 head
+`85814a6491eb2db3d23dce79efc0c93dfb6024a1` (source-ownership fix), using Zig 0.16.0, ReleaseFast, ABI 3,
 with optional dynamic FFI disabled. It is a local native macOS build, not a portable
 release/distribution artifact. The header/runtime version and ABI are checked at
 startup; compile-time checks also require `SCUA_FAULT_ERROR` from the embedding
@@ -163,13 +164,16 @@ follow-ups. Version/ABI numbers alone cannot distinguish the original 0.38 SDK f
 this preview: use the matching pinned header and library, not a mixed pair.
 
 Reproduce using a matching SCUA git checkout or bare mirror. This workspace has
-the fetched snapshot in `build/scua-upstream.git`. In a fresh workspace, first run
-`git clone --bare https://github.com/unabated-games/scua.git build/scua-upstream.git`.
-Then build the pinned source (or point --source at another checkout containing it):
+the fetched PR snapshot in `build/scua-upstream.git`. PR #833 was not merged at
+verification time. In a fresh workspace, first run
+`git clone --bare git@github.com:unabated-games/scua.git build/scua-upstream.git`.
+Fetch the PR into that mirror, then build its pinned source (or point --source at
+another checkout containing it):
 
 ```sh
+git --git-dir=build/scua-upstream.git fetch git@github.com:unabated-games/scua.git refs/pull/833/head:refs/lovescua/pr-833
 python3 scua/build_sdk.py --source build/scua-upstream.git \
-  --revision 65cabd9600383b0fda82909b7c72937565e2350d \
+  --revision 85814a6491eb2db3d23dce79efc0c93dfb6024a1 \
   --zig /path/to/zig-0.16 --output build/scua-sdk-0.39-preview
 cmake -S . -B build -DSCUA_ROOT="$PWD/build/scua-sdk-0.39-preview"
 cmake --build build -j2
@@ -189,7 +193,9 @@ physics reentry and actor reload. Native tests verify
 owner-thread calls, actual worker execution, phase refusal, foreign-thread posting,
 inbox backpressure, deferred application and shutdown. They also run lone infinite
 actors/tasks with `op_budget=0` under both kinds of frame limit, and finite long
-handlers/tasks to completion across bounded calls. Graphical checks are batched
+handlers/tasks to completion across bounded calls. `scua_fault_names` checks static,
+file-loaded and overwritten/freed input buffers, and the script regressions assert
+actual partition names. Graphical checks are batched
 separately at the end, not included in the headless suite.
 
 ## Native references in reusable actors
@@ -203,5 +209,5 @@ SDK does not let a saved actor resurrect a native function's authority. Game sav
 here remain logical snapshots, with actors/resources recreated on reload.
 
 The original observations are preserved in [the historical 0.38 handoff](SCUA_038_HANDOFF.md).
-The outstanding file-loaded name issue and a standalone C reproduction are in
+The resolved file-loaded name issue and its passing C regression are documented in
 [SCUA_039_HANDOFF.md](SCUA_039_HANDOFF.md).
