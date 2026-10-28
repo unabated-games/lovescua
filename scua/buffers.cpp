@@ -469,7 +469,7 @@ void shader_send_buffer(scua_ctx *ctx)
     if (!s || !b)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info ||
+    if (!info || !info->active ||
         (info->baseType != Shader::UNIFORM_TEXELBUFFER && info->baseType != Shader::UNIFORM_STORAGEBUFFER))
         throw std::invalid_argument("expected an active buffer uniform");
     s->sendBuffers(info, &b, 1);
@@ -666,7 +666,7 @@ void shader_send_textures(scua_ctx *ctx)
     if (!s)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info ||
+    if (!info || !info->active ||
         (info->baseType != Shader::UNIFORM_SAMPLER && info->baseType != Shader::UNIFORM_STORAGETEXTURE))
         throw std::invalid_argument("expected an active texture uniform");
     auto owned = resourceArray<Texture>(
@@ -695,7 +695,7 @@ void shader_send_buffers(scua_ctx *ctx)
     if (!s)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info ||
+    if (!info || !info->active ||
         (info->baseType != Shader::UNIFORM_TEXELBUFFER && info->baseType != Shader::UNIFORM_STORAGEBUFFER))
         throw std::invalid_argument("expected an active buffer uniform");
     auto owned = resourceArray<Buffer>(

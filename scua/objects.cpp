@@ -325,7 +325,7 @@ void shader_has_uniform(scua_ctx *ctx)
     auto name = string(ctx, 1);
     auto s = shader(ctx);
     if (s)
-        scua_return_bool(ctx, s->getUniformInfo(name) != nullptr);
+        scua_return_bool(ctx, s->hasUniform(name));
 }
 void shader_send_texture(scua_ctx *ctx)
 {
@@ -336,11 +336,12 @@ void shader_send_texture(scua_ctx *ctx)
     if (!s || !texture)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info || info->baseType != love::graphics::Shader::UNIFORM_SAMPLER)
+    if (!info || !info->active || info->baseType != love::graphics::Shader::UNIFORM_SAMPLER)
         throw std::invalid_argument("expected an active texture sampler uniform");
     auto value = texture->texture;
     s->sendTextures(info, &value, 1);
 }
+std::vector<double> uniformComponents(scua_partition *, scua_Handle, int, bool);
 void shader_send(scua_ctx *ctx)
 {
     arity(ctx, 3);
@@ -349,37 +350,45 @@ void shader_send(scua_ctx *ctx)
     if (!s)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info)
+    if (!info || !info->active)
         throw std::invalid_argument("shader uniform is absent or optimized away: " + name);
-    if (info->baseType == love::graphics::Shader::UNIFORM_FLOAT)
+    using Shader = love::graphics::Shader;
+    bool matrix = info->baseType == Shader::UNIFORM_MATRIX;
+    if (info->baseType != Shader::UNIFORM_FLOAT && !matrix && info->baseType != Shader::UNIFORM_INT &&
+        info->baseType != Shader::UNIFORM_UINT && info->baseType != Shader::UNIFORM_BOOL)
+        throw std::invalid_argument("use explicit texture/buffer upload functions for resource uniforms");
+    int components = matrix ? info->matrix.rows * info->matrix.columns : info->components;
+    auto values = uniformComponents(scua_ctx_partition(ctx), scua_arg(ctx, 2), components,
+                                    info->baseType == Shader::UNIFORM_BOOL);
+    std::vector<int> ints;
+    std::vector<unsigned> uints;
+    for (double value : values)
     {
-        float value[4];
-        int n = scua_to_vec(scua_ctx_partition(ctx), scua_arg(ctx, 2), value, 4);
-        if (n == 0)
+        if (info->baseType == Shader::UNIFORM_UINT)
         {
-            value[0] = number(ctx, 2);
-            n = 1;
+            if (value < 0 || value > UINT_MAX || std::floor(value) != value)
+                throw std::invalid_argument("unsigned uniform value outside integer range");
+            uints.push_back(value);
         }
-        if (n != info->components)
-            throw std::invalid_argument("shader uniform component count mismatch");
-        for (int i = 0; i < n; ++i)
-            if (!std::isfinite(value[i]))
-                throw std::invalid_argument("uniform must be finite");
-        std::copy(value, value + n, info->floats);
-        s->updateUniform(info, 1);
+        else if (info->baseType == Shader::UNIFORM_INT || info->baseType == Shader::UNIFORM_BOOL)
+        {
+            if (value < INT_MIN || value > INT_MAX || std::floor(value) != value)
+                throw std::invalid_argument("uniform value outside integer range");
+            ints.push_back(value);
+        }
     }
-    else if (info->baseType == love::graphics::Shader::UNIFORM_INT ||
-             info->baseType == love::graphics::Shader::UNIFORM_BOOL)
-    {
-        if (info->components != 1)
-            throw std::invalid_argument("integer vector uniforms are not yet supported");
-        info->ints[0] = info->baseType == love::graphics::Shader::UNIFORM_BOOL
-                            ? boolean(ctx, 2)
-                            : integer(ctx, 2, INT_MIN, INT_MAX);
-        s->updateUniform(info, 1);
-    }
+    // All components validated before publishing, including integer vectors.
+    if (matrix)
+        for (int column = 0; column < info->matrix.columns; ++column)
+            for (int row = 0; row < info->matrix.rows; ++row)
+                info->floats[column * info->matrix.rows + row] = values[row * info->matrix.columns + column];
+    else if (info->baseType == Shader::UNIFORM_FLOAT)
+        std::copy(values.begin(), values.end(), info->floats);
+    else if (!uints.empty())
+        std::copy(uints.begin(), uints.end(), info->uints);
     else
-        throw std::invalid_argument("shader_send supports float, vec2/3/4, int and bool uniforms");
+        std::copy(ints.begin(), ints.end(), info->ints);
+    s->updateUniform(info, 1);
 }
 
 double uniformNumber(scua_partition *p, scua_Handle v)
@@ -502,7 +511,7 @@ void shader_send_array(scua_ctx *ctx)
     if (!s)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info)
+    if (!info || !info->active)
         throw std::invalid_argument("shader uniform is absent or optimized away: " + name);
     using Shader = love::graphics::Shader;
     if (info->baseType != Shader::UNIFORM_FLOAT && info->baseType != Shader::UNIFORM_MATRIX &&
@@ -572,7 +581,7 @@ void shader_send_matrix(scua_ctx *ctx)
     if (!s)
         return;
     auto info = s->getUniformInfo(name);
-    if (!info || info->baseType != love::graphics::Shader::UNIFORM_MATRIX)
+    if (!info || !info->active || info->baseType != love::graphics::Shader::UNIFORM_MATRIX)
         throw std::invalid_argument("expected an active matrix uniform");
     int rows = info->matrix.rows, columns = info->matrix.columns;
     if (rows < 2 || rows > 4 || columns < 2 || columns > 4)
@@ -626,6 +635,7 @@ void shader_uniform_info(scua_ctx *ctx)
     }
     Record r(ctx);
     r.str("kind", kind);
+    r.boolean("active", info->active);
     r.integer("count", info->count);
     r.integer("components", matrix ? info->matrix.rows * info->matrix.columns : info->components);
     r.integer("rows", matrix ? info->matrix.rows : 0);
@@ -702,7 +712,9 @@ void registerObjects(scua_partition *p, Host &state)
              "shader_send_texture(shader: any, name: string, texture: any)",
              "Bind and retain a texture sampler uniform."},
             {"love_graphics", "shader_send", guarded<shader_send>,
-             "shader_send(shader: any, name: string, value: any)", "Send a scalar or vector uniform."},
+             "shader_send(shader: any, name: string, value: any)",
+             "Send one float/int/uint/bool vector or row-major matrix; numeric arrays preserve integer "
+             "precision."},
             {"love_graphics", "shader_send_color", guarded<shader_send_color>,
              "shader_send_color(shader: any, name: string, color: any)",
              "Send vec3/vec4 color or color array; clamp channels and convert RGB to linear when gamma "

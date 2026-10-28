@@ -1,5 +1,6 @@
 """Build a pinned SCUA embedding SDK (0.39 or its preview, ABI 3) without changing its checkout."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ parser.add_argument('--revision',default='HEAD')
 parser.add_argument('--output',type=Path,default=Path('build/scua-sdk-0.39-preview'))
 parser.add_argument('--zig',default='zig',help='Zig 0.16 executable')
 parser.add_argument('--target',help='optional Zig target triple/minimum OS')
+parser.add_argument('--native-fs-root-fix',action='store_true',help='apply the local filesystem-root grant fix to the pinned preview')
 args=parser.parse_args()
 source=args.source.resolve()
 revision=subprocess.check_output(['git','rev-parse',args.revision],cwd=source,text=True).strip()
@@ -35,6 +37,11 @@ with archive.open('wb') as stream:
     subprocess.run(['git','archive',revision,'build.zig','src','include','packaging','examples'],cwd=source,stdout=stream,check=True)
 with tarfile.open(archive) as bundle:
     bundle.extractall(work,filter='data')
+patches=[]
+if args.native_fs_root_fix:
+    patch=Path(__file__).resolve().parent/'sdk_patches/native_fs_root.patch'
+    subprocess.run(['patch','-p1','--batch','--forward','--fuzz=0','--input',str(patch)],cwd=work,check=True)
+    patches.append({'name':patch.name,'sha256':hashlib.sha256(patch.read_bytes()).hexdigest()})
 command=[args.zig,'build','sdk','-Doptimize=ReleaseFast','-Ddev=false','-j2',
          '--cache-dir',str(output.parent/'scua-zig-cache'),
          '--global-cache-dir',str(output.parent/'scua-zig-global'),
@@ -44,5 +51,5 @@ subprocess.run(command,cwd=work,check=True)
 shutil.copy2(work/'packaging/LICENSE',output/'LICENSE')
 (output/'BUILD.json').write_text(json.dumps({'source_commit':revision,'version':'.'.join(map(str,version)),'abi':3,
                                            'zig':zig_version,'optimize':'ReleaseFast','ffi':False,
-                                           'target':args.target or 'native'},indent=2)+'\n')
+                                           'target':args.target or 'native','patches':patches},indent=2)+'\n')
 print('Built',output)

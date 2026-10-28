@@ -35,7 +35,7 @@ struct Options
     uint64_t frames = 0;
     double fixedDt = 0;
     bool noInput = false, check = false, headless = false, watch = false, reportResources = false,
-         gammaCorrect = false;
+         gammaCorrect = false, nativePaths = false;
     lovescua::JobSettings jobs;
     std::vector<std::string> mounts;
 };
@@ -60,6 +60,7 @@ void usage()
                  "GAME.scua|DIRECTORY\n"
                  "                [--mount RESOURCE_DIRECTORY_OR_PACK] (repeatable)\n"
                  "                [--save-dir DIRECTORY] [--user-id APP_ID] (opt-in saves)\n"
+                 "                [--allow-native-fs] (trusted scripts: native filesystem paths)\n"
                  "                [--watch] (reload changed SCUA files; preserve snapshot/restore state)\n"
                  "                [--workers 0..64] [--actor-budget-ms MS] [--actor-turns N]\n"
                  "                [--actor-order index|reverse|shuffle:SEED]\n"
@@ -349,6 +350,8 @@ int main(int argc, char **argv)
                 options.renderer = value();
             else if (arg == "--gamma-correct")
                 options.gammaCorrect = true;
+            else if (arg == "--allow-native-fs")
+                options.nativePaths = true;
             else if (arg == "--screenshot")
                 options.screenshot = value();
             else if (arg == "--write-decls")
@@ -389,6 +392,7 @@ int main(int argc, char **argv)
         options.reportResources = verify;
         lovescua::Host host;
         host.ignoreInput = options.noInput;
+        host.nativePaths = options.nativePaths;
         if (!options.declarations.empty())
         {
             Partition partition(scua_partition_new(), DestroyPartition{&host, verify});
@@ -424,6 +428,8 @@ int main(int argc, char **argv)
             if (scua_use_project(partition.get(), options.script.parent_path().c_str(), error,
                                  sizeof(error)) != SCUA_OK)
                 throw std::runtime_error(error);
+            if (options.nativePaths && scua_grant_fs(partition.get(), "/") != SCUA_OK)
+                throw std::runtime_error("could not enable native filesystem paths");
             if (!options.saveDirectory.empty() || !options.userId.empty())
                 if (scua_grant_user(partition.get(),
                                     options.userId.empty() ? nullptr : options.userId.c_str(),

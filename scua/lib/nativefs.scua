@@ -1,0 +1,40 @@
+-- Explicit native paths for trusted tools/games launched with --allow-native-fs.
+-- File contents and stream lifetime remain SCUA fs Results/managed handles.
+import love_nativefs as host
+import fs
+import file_stream
+
+fn absolute_path(path: string) -> string return host.resolve(path).path end
+fn cwd() -> string return absolute_path(".") end
+fn target(path: string) -> string return host.resolve(path).rooted end
+fn read(path: string, settings = nil) return fs.read(target(path),settings) end
+fn read_text(path: string, settings = nil) return fs.read_text(target(path),settings) end
+fn write(path: string, content, settings = nil) return fs.write(target(path),content,settings) end
+fn create_directory(path: string) return fs.mkdir(target(path)) end
+fn remove(path: string) return fs.remove(target(path)) end
+fn rename(source: string, destination: string) return fs.rename(target(source),target(destination)) end
+fn exists(path: string) return fs.exists(target(path)) end
+fn get_info(path: string) return fs.stat(target(path)) end
+fn get_directory_items(path: string) return fs.list(target(path)) end
+fn open(path: string, mode: string = "r")
+  let resolved=host.resolve(path)
+  match file_stream.open_path(resolved.rooted,mode)
+    Error(reason) -> return Error(reason)
+    Ok(file) -> do file.display_path=resolved.path return Ok(file) end
+  end
+end
+fn with_file(path: string, mode: string, body)
+  return file_stream.with_opened(open(path,mode),body)
+end
+fn append(path: string, content)
+  match with_file(path,"a",fn(file) return file_stream.write(file,content) end)
+    Error(reason) -> return Error(reason)
+    Ok(result) -> return result
+  end
+end
+return {
+  enabled=host.enabled,absolute_path=absolute_path,cwd=cwd,
+  read=read,read_text=read_text,write=write,append=append,open=open,with_file=with_file,stream=file_stream,
+  create_directory=create_directory,remove=remove,rename=rename,exists=exists,
+  get_info=get_info,get_directory_items=get_directory_items,
+}

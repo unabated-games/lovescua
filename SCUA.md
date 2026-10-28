@@ -13,6 +13,12 @@ See the generated [API inventory](SCUA_API.md) for exact signatures. This remain
 a SCUA-oriented port: the supported surface and deliberate API differences are listed
 below and in the [upstream method audit](SCUA_COMPATIBILITY.md).
 
+Trusted games/tools can opt into ordinary native filesystem paths with
+`--allow-native-fs` and `import nativefs`. This grants filesystem access with the
+process's OS permissions; it is off by default. Resources and saves remain
+available through `filesystem`. See [native-path access](SCUA_RUNTIME.md#trusted-native-path-access)
+and the matching [SDK build](SCUA_ACTORS.md#sdk-and-verification).
+
 ## Run the prepared build
 
 From this repository:
@@ -100,7 +106,7 @@ For offline audio builds, add
 `-DFETCHCONTENT_SOURCE_DIR_MODPLUG=/path/to/libmodplug-d1b97ed0020bc620a059d3675d1854b40bd2608d`.
 Use `/usr/local` instead of `/opt/homebrew` for an Intel Homebrew installation.
 
-For this workspace, the matching SDK is built in `build/scua-sdk-0.39-preview` from a
+For this workspace, the matching SDK is built in `build/scua-sdk-nativefs` from a
 pinned SCUA source snapshot. See [SDK build instructions](SCUA_ACTORS.md#sdk-and-verification)
 to reproduce it. SDL source in `build/vendor/SDL3-3.2.28` is a fallback; the current
 build uses installed SDL 3.4.18. These and OpenAL Soft in
@@ -109,7 +115,7 @@ CMake cache already points to them. To configure again using them:
 
 ```sh
 cmake -S . -B build -DLOVE_SCUA=ON \
-  -DSCUA_ROOT="$PWD/build/scua-sdk-0.39-preview" \
+  -DSCUA_ROOT="$PWD/build/scua-sdk-nativefs" \
   -DLOVE_SCUA_FETCH_SDL=ON \
   -DFETCHCONTENT_SOURCE_DIR_SDL3="$PWD/build/vendor/SDL3-3.2.28" \
   -DLOVE_SCUA_FETCH_OPENAL=ON \
@@ -193,10 +199,12 @@ are reported separately as `kind="error"`. Each callback has a one-million-step
 budget and the main script partition has a 64 MiB memory cap. Actor heaps add
 memory usage; the bridge does not impose an aggregate actor-memory quota.
 
-The host grants no general filesystem, network or process capabilities. SCUA's
+By default the host grants no general filesystem, network or process capabilities. SCUA's
 `fs` module can read the project's `res:` resources. Saves require an explicit
 `--save-dir DIRECTORY` or `--user-id APP_ID` grant and use `user:` paths. General
-host paths remain unavailable. The entry script and its imports use the embedding API. Drawing functions
+host paths require the explicit `--allow-native-fs` option for trusted scripts,
+accessed through `import nativefs`. Network/process capabilities are not granted.
+The entry script and its imports use the embedding API. Drawing functions
 must be called during `draw()`. At the start of each frame the host resets the
 transform and color and clears the configured background color; the script can then clear and
 draw its own scene.
@@ -273,14 +281,15 @@ end
 
 `assets.image` reads the encoded bytes using SCUA's resource API, then passes
 them to LÖVE's decoder. Read/decode failures become catchable script faults.
-The native layer never opens a script-supplied host path. You can also pass
+The image loader accepts copied bytes rather than opening host paths. You can also pass
 encoded bytes directly to `love.graphics.new_image`.
 
 Draw transforms use a `vec2` position, a rotation in radians (default `0`), a
 `vec2` scale (default `vec2(1, 1)`) and a `vec2` local origin (default zero).
 Negative scale flips the image. Current drawing color tints images, including
 alpha. Quads store their source image, so `draw_quad` needs only the region.
-Regions must have positive size and fit inside their source image.
+Regions must have positive size; viewports may extend outside the source image
+for texture wrapping.
 
 Additional resource directories or SCUA resource packs can be mounted above
 the game's default resources, in argument order:
@@ -837,7 +846,7 @@ functions are supplied by `lovescua`.
 The macOS feature batch adds CPU image formats/operations/encoders, desktop settings
 and asynchronous dialogs, sensor event delivery, logical saves, staged hot reload,
 optional resource types and an upstream migration audit. The current registry has
-717 native functions in 22 modules. [Runtime details](SCUA_RUNTIME.md) describe the
+721 native functions in 23 modules. [Runtime details](SCUA_RUNTIME.md) describe the
 interfaces and rollback/typing limits; [validation](SCUA_VALIDATION.md) records what
 was actually checked.
 
@@ -855,7 +864,11 @@ was actually checked.
   affected graphics paths; `--gamma-correct` selects gamma correction before
   renderer initialization. [Runtime contracts](SCUA_RUNTIME.md#rooted-file-streams)
   describe the stream and capture limits.
-- Lua overloads, ambient filesystem paths, raw pointers and exact Lua Data
+- Native paths are explicitly enabled for trusted scripts. The behaviour follow-up
+  checks RNG/noise/transform results against the engine, binary codecs against
+  standard hash values, PCM/audio units and shader uploads. Details and remaining
+  differences are in [the validation record](SCUA_VALIDATION.md).
+- Lua-specific overload shapes, raw pointers and exact Lua Data
   binary-format compatibility are deliberately replaced or excluded. The
   [1,090-entry migration audit](SCUA_COMPATIBILITY.md) lists per-method destinations
   and boundaries. The former 402 blanket family mappings have been replaced with

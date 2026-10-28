@@ -33,6 +33,7 @@ struct Game
         h.ignoreInput = base.ignoreInput;
         h.keyRepeat = base.keyRepeat;
         h.cpuOnly = base.cpuOnly;
+        h.nativePaths = options.nativePaths;
         h.delta = base.delta;
         h.elapsed = base.elapsed;
         h.averageDelta = base.averageDelta;
@@ -58,6 +59,8 @@ struct Game
         char error[4096]{};
         if (scua_use_project(p, options.script.parent_path().c_str(), error, sizeof(error)) != SCUA_OK)
             throw std::runtime_error(error);
+        if (options.nativePaths && scua_grant_fs(p, "/") != SCUA_OK)
+            throw std::runtime_error("could not enable native filesystem paths");
         if (!options.saveDirectory.empty() || !options.userId.empty())
             if (scua_grant_user(p, options.userId.empty() ? nullptr : options.userId.c_str(),
                                 options.saveDirectory.empty() ? nullptr : options.saveDirectory.c_str(), 0,

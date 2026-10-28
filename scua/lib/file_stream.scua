@@ -5,7 +5,7 @@ import bytes
 import str
 
 record Stream {
-  handle: any, path: string, mode: string,
+  handle: any, path: string, mode: string, display_path: string = "",
   opened: bool = true, position: int = 0, eof: bool = false,
   buffer_mode: string = "none", buffer_size: int = 8192,
   pending: bytes, ahead: bytes,
@@ -14,12 +14,9 @@ fn empty() -> bytes return bytes.from_string("") end
 fn require_open(file: Stream)
   assert(file.opened,"file is closed")
 end
-fn open(path: string, mode: string = "r")
+-- Exact SDK paths, including a host-granted fs root. This grants no authority.
+fn open_path(target: string, mode: string = "r")
   assert(mode=="r" or mode=="w" or mode=="a" or mode=="update" or mode=="create","invalid file mode")
-  let target=path
-  if not str.starts_with(target,"res:") and not str.starts_with(target,"user:") then
-    target=(if mode=="r" then "res:" else "user:" end)..target
-  end
   let native_mode=if mode=="r" then "read" elseif mode=="w" then "write" elseif mode=="a" then "append" else mode end
   match fs.open(target,{mode=native_mode})
     Error(reason) -> return Error(reason)
@@ -35,6 +32,13 @@ fn open(path: string, mode: string = "r")
       return Ok(file)
     end
   end
+end
+fn open(path: string, mode: string = "r")
+  let target=path
+  if not str.starts_with(target,"res:") and not str.starts_with(target,"user:") then
+    target=(if mode=="r" then "res:" else "user:" end)..target
+  end
+  return open_path(target,mode)
 end
 fn flush(file: Stream)
   require_open(file)
@@ -220,8 +224,8 @@ fn abort(file: Stream)
   file.ahead=empty()
   return result
 end
-fn with_file(path: string, mode: string, body)
-  match open(path,mode)
+fn with_opened(opened, body)
+  match opened
     Error(reason) -> return Error(reason)
     Ok(file) -> do
       let result=pcall(fn() return body(file) end)
@@ -235,6 +239,9 @@ fn with_file(path: string, mode: string, body)
       end
     end
   end
+end
+fn with_file(path: string, mode: string, body)
+  return with_opened(open(path,mode),body)
 end
 fn lines(file: Stream)
   require_open(file)
@@ -255,14 +262,14 @@ fn is_eof(file: Stream) -> bool
   return file.eof
 end
 fn get_mode(file: Stream) -> string return if file.opened then file.mode else "closed" end end
-fn get_filename(file: Stream) -> string return file.path end
+fn get_filename(file: Stream) -> string return if file.display_path=="" then file.path else file.display_path end end
 fn get_extension(file: Stream) -> string
-  let name=str.split(file.path,"/")
+  let name=str.split(get_filename(file),"/")
   let pieces=str.split(name[name.len()-1],".")
   return if pieces.len()>1 then pieces[pieces.len()-1] else "" end
 end
 return {
-  open=open,with_file=with_file,close=close,abort=abort,lines=lines,read=read,read_line=read_line,write=write,flush=flush,sync=sync,
+  open=open,open_path=open_path,with_file=with_file,with_opened=with_opened,close=close,abort=abort,lines=lines,read=read,read_line=read_line,write=write,flush=flush,sync=sync,
   seek=seek,tell=tell,get_size=get_size,set_buffer=set_buffer,get_buffer=get_buffer,
   is_open=is_open,is_eof=is_eof,get_mode=get_mode,get_filename=get_filename,get_extension=get_extension,
 }

@@ -107,14 +107,16 @@ void seek_samples(scua_ctx *ctx)
 }
 void sound_copy(scua_ctx *ctx)
 {
-    arity(ctx, 5);
+    if (scua_arg_count(ctx) < 4 || scua_arg_count(ctx) > 5)
+        throw std::invalid_argument(
+            "copy_data expects destination, source, start, count and optional destination start");
     auto dest = objectArgument<love::sound::SoundData>(ctx, 0, ObjectKind::SoundData),
          src = objectArgument<love::sound::SoundData>(ctx, 1, ObjectKind::SoundData);
     if (!src || !dest)
         return;
     int from = integer(ctx, 2, 0, src->getSampleCount()),
         count = integer(ctx, 3, 0, src->getSampleCount() - from),
-        to = integer(ctx, 4, 0, dest->getSampleCount());
+        to = supplied(ctx, 4) ? integer(ctx, 4, 0, dest->getSampleCount()) : 0;
     if (count > dest->getSampleCount() - to)
         throw std::invalid_argument("PCM copy exceeds destination bounds");
     dest->copyFrom(src, from, count, to);
@@ -418,7 +420,7 @@ void registerAudioControls(scua_partition *p, Host &state)
              "Resume the app's audio context where supported."},
             {"love_sound", "copy_data", guarded<sound_copy>,
              "copy_data(destination: any, source: any, source_start: int, count: int, destination_start: "
-             "int)",
+             "int = 0)",
              "Copy PCM sample frames with bounds/channel checks and native bit-depth conversion."},
             {"love_sound", "decoder_rewind", guarded<decoder_rewind>, "decoder_rewind(decoder: any) -> bool",
              "Rewind an incremental decoder."},

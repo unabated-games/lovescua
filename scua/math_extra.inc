@@ -36,17 +36,21 @@ void curve_remove(scua_ctx *c)
 }
 void curve_rotate(scua_ctx *c)
 {
-    arity(c, 3);
-    float angle = number(c, 1), xy[2];
-    vector(c, 2, xy, 2);
+    if (scua_arg_count(c) < 2 || scua_arg_count(c) > 3)
+        throw std::invalid_argument("curve_rotate expects curve, angle and optional center");
+    float angle = number(c, 1), xy[2]{};
+    if (supplied(c, 2))
+        vector(c, 2, xy, 2);
     if (auto v = curve(c))
         v->rotate(angle, {xy[0], xy[1]});
 }
 void curve_scale(scua_ctx *c)
 {
-    arity(c, 3);
-    float scale = number(c, 1), xy[2];
-    vector(c, 2, xy, 2);
+    if (scua_arg_count(c) < 2 || scua_arg_count(c) > 3)
+        throw std::invalid_argument("curve_scale expects curve, factor and optional center");
+    float scale = number(c, 1), xy[2]{};
+    if (supplied(c, 2))
+        vector(c, 2, xy, 2);
     if (std::abs(scale) > 1e6)
         throw std::invalid_argument("curve scale exceeds supported range");
     if (auto v = curve(c))
@@ -54,9 +58,11 @@ void curve_scale(scua_ctx *c)
 }
 void curve_render_segment(scua_ctx *c)
 {
-    arity(c, 4);
+    if (scua_arg_count(c) < 3 || scua_arg_count(c) > 4)
+        throw std::invalid_argument(
+            "curve_render_segment expects curve, start, finish and optional accuracy");
     float a = number(c, 1), b = number(c, 2);
-    int accuracy = integer(c, 3, 0, 12);
+    int accuracy = supplied(c, 3) ? integer(c, 3, 0, 12) : 5;
     if (a < 0 || b > 1 || b < a)
         throw std::invalid_argument("invalid curve segment");
     if (auto v = curve(c))
@@ -169,11 +175,13 @@ void registerMathExtras(scua_partition *p, Host &s)
          {"love_math", "curve_remove", guarded<curve_remove>, "curve_remove(curve: any, index: int)",
           "Remove a zero-based curve control point."},
          {"love_math", "curve_rotate", guarded<curve_rotate>,
-          "curve_rotate(curve: any, radians: float, center: vec2)", "Rotate curve points around a center."},
+          "curve_rotate(curve: any, radians: float, center: any = nil)",
+          "Rotate curve points around a center (default origin)."},
          {"love_math", "curve_scale", guarded<curve_scale>,
-          "curve_scale(curve: any, factor: float, center: vec2)", "Scale curve points around a center."},
+          "curve_scale(curve: any, factor: float, center: any = nil)",
+          "Scale curve points around a center (default origin)."},
          {"love_math", "curve_render_segment", guarded<curve_render_segment>,
-          "curve_render_segment(curve: any, start: float, finish: float, accuracy: int) -> any",
+          "curve_render_segment(curve: any, start: float, finish: float, accuracy: int = 5) -> any",
           "Render a bounded native curve segment."},
          {"love_math", "random_seed", guarded<random_seed>, "random_seed(generator: any) -> any",
           "Get exact low/high 32-bit seed words."},

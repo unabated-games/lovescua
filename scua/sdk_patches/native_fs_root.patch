@@ -1,0 +1,21 @@
+diff --git a/src/sysio.zig b/src/sysio.zig
+--- a/src/sysio.zig
++++ b/src/sysio.zig
+@@ -853,7 +853,17 @@
+ /// `/a/bc` is not under `/a/b`.)
+ fn underRoot(root_real: []const u8, p: []const u8) bool {
+     if (!std.mem.startsWith(u8, p, root_real)) return false;
++    // The filesystem root already ends in the separator. Requiring a second
++    // separator rejects every direct descendant of an explicit '/' grant.
++    if (root_real.len == 1 and root_real[0] == std.fs.path.sep) return true;
+     return p.len == root_real.len or p[root_real.len] == std.fs.path.sep;
++}
++
++test "filesystem-root grant accepts descendants without accepting prefix siblings" {
++    try std.testing.expect(underRoot("/", "/tmp/file"));
++    try std.testing.expect(!underRoot("/", "tmp/file"));
++    try std.testing.expect(underRoot("/tmp", "/tmp/file"));
++    try std.testing.expect(!underRoot("/tmp", "/tmp-other/file"));
+ }
+ 
+ /// The root directory's own canonical (symlink-resolved) path, written into `buf`.

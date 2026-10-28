@@ -90,6 +90,7 @@ struct Host
     bool quitting = false;
     bool drawing = false;
     bool checking = false;
+    bool nativePaths = false;
     bool cpuOnly = false, reloadRequested = false, staging = false;
     std::set<scua_fn> stagingUnsafe, actorSerialOnly;
     std::string reloadError;
@@ -110,6 +111,7 @@ struct Host
 };
 
 void registerBindings(scua_partition *partition, Host &host);
+void registerNativeFilesystem(scua_partition *, Host &);
 void registerScreenshots(scua_partition *, Host &);
 void submitScreenshots(Host &);
 void deliverScreenshots(Host &);

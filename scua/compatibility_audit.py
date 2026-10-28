@@ -96,10 +96,12 @@ aliases('joystick.JoystickModule','joystick',{'getJoysticks':'get','getJoystickC
 aliases('joystick.Joystick','joystick',{'getAxis':'axis','getHat':'hat','getGamepadAxis':'gamepad_axis','isGamepadDown':'gamepad_down','getGamepadMapping':'mapping','isVibrationSupported':'vibration_supported','setVibration':'vibrate','isSensorEnabled':'sensor_enabled','getSensorData':'sensor_data'})
 aliases('keyboard.Keyboard','keyboard',{'getScancodeFromKey':'scancode_from_key','getKeyFromScancode':'key_from_scancode'})
 aliases('mouse.Mouse','mouse',{'getSystemCursor':'system_cursor','getGlobalPosition':'global_position','getX':'position','getY':'position','setX':'set_position','setY':'set_position'})
-aliases('math.Math','math',{'newRandomGenerator':'new_random','_getRandomGenerator':'new_random','newBezierCurve':'new_curve','simplexNoise':'noise'})
+aliases('math.Math','math',{'newRandomGenerator':'new_random','newBezierCurve':'new_curve','simplexNoise':'simplex_noise'})
+map_methods('math.Math','love_math.new_random','_getRandomGenerator',
+            'Create and retain an explicit generator in your game; no shared module-global RNG object.','Replacement')
 aliases('math.BezierCurve','math',{'getDegree':'curve_degree','getDerivative':'curve_derivative','getControlPoint':'curve_point','setControlPoint':'curve_set_point','insertControlPoint':'curve_insert','removeControlPoint':'curve_remove','getControlPointCount':'curve_count','translate':'curve_translate','rotate':'curve_rotate','scale':'curve_scale','evaluate':'curve_evaluate','getSegment':'curve_segment','render':'curve_render','renderSegment':'curve_render_segment'})
 aliases('math.RandomGenerator','math',{'_random':'random','randomNormal':'random_normal','setSeed':'random_set_seed','getSeed':'random_seed','setState':'random_set_state','getState':'random_state'})
-aliases('math.Transform','math',{'clone':'transform_clone','inverse':'transform_inverse','apply':'transform_apply','translate':'transform_translate','rotate':'transform_rotate','scale':'transform_scale','shear':'transform_shear','reset':'transform_reset','setMatrix':'transform_set_matrix','getMatrix':'transform_matrix','transformPoint':'transform_point','inverseTransformPoint':'transform_inverse_point','__mul':'transform_apply'})
+aliases('math.Transform','math',{'clone':'transform_clone','inverse':'transform_inverse','apply':'transform_apply','translate':'transform_translate','rotate':'transform_rotate','scale':'transform_scale','shear':'transform_shear','reset':'transform_reset','setMatrix':'transform_set_matrix','getMatrix':'transform_matrix','transformPoint':'transform_point','inverseTransformPoint':'transform_inverse_point','__mul':'transform_multiply'})
 aliases('sound.Sound','sound',{'newSoundData':'new_data'})
 aliases('sound.SoundData','sound',{'copyFrom':'copy_data','slice':'slice_data'})
 aliases('sound.Decoder','sound',{'clone':'decoder_clone','seek':'decoder_seek','decode':'decode_next'})
@@ -159,12 +161,21 @@ map_methods('graphics.Shader','love_graphics.shader_send_color','sendColor',
             'Clamp color channels; convert RGB to linear when gamma correction is enabled. Accepts one color or an array.')
 map_methods('graphics.Graphics','love_graphics.capture_screenshot love_graphics.screenshot_results screenshots.save','captureScreenshot',
             'Callback or polled ImageData after presentation; save encoded bytes through granted filesystem access. Actor channels use copied bytes/ids.')
+map_methods('filesystem.Filesystem','nativefs.open','openNativeFile',
+            'Explicit native paths require --allow-native-fs; trusted scripts can use absolute paths or paths relative to the process working directory.')
+map_methods('filesystem.Filesystem','nativefs.cwd','getWorkingDirectory','Process working directory; requires --allow-native-fs.')
+map_methods('filesystem.Filesystem','nativefs.absolute_path','canonicalizeRealPath',
+            'Normalize/resolve existing native symlinks, keeping a non-existing suffix for creates; requires --allow-native-fs.')
+map_methods('math.Transform','love_math.transform_multiply','__mul','Returns a new composition and preserves both operands; transform_apply mutates the first operand.')
+map_methods('math.Math','love_math.noise','noise','Matches legacy upstream: simplex in 1D/2D, Perlin in 3D/4D. Scalar or vec2/3/4.')
+map_methods('math.Math','love_math.simplex_noise','simplexNoise','Simplex in 1..4 dimensions; scalar or vec2/3/4.')
 
 
 def facade_exports(module, seen=()):
     if module in seen: return set()
     path=ROOT/'scua/lib'/(module+'.scua')
     source=path.read_text()
+    imports={alias or name:name for name,alias in re.findall(r'^import (\w+)(?: as (\w+))?',source,re.M)}
     functions=set(re.findall(r'^fn (\w+)\(',source,re.M))
     tail=source[source.rfind('return {'):]
     out=set()
@@ -172,11 +183,13 @@ def facade_exports(module, seen=()):
         if value in functions: out.add(module+'.'+name)
         elif '.' in value:
             other,member=value.split('.',1)
-            if value in facade_exports(other,(*seen,module)):out.add(module+'.'+name)
+            other=imports.get(other,other)
+            target=other+'.'+member
+            if target in NATIVE or target in facade_exports(other,(*seen,module)):out.add(module+'.'+name)
     return out
 
 
-DESTINATIONS=NATIVE | set().union(*(facade_exports(module) for module in ('filesystem','file_stream','file_data','screenshots')))
+DESTINATIONS=NATIVE | set().union(*(facade_exports(module) for module in ('filesystem','file_stream','file_data','screenshots','nativefs')))
 
 def snake(name):
     return re.sub(r'([a-z0-9])([A-Z])',r'\1_\2',re.sub(r'([A-Z]+)([A-Z][a-z])',r'\1_\2',name)).lower().lstrip('_')

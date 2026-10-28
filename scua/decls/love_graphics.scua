@@ -276,7 +276,7 @@ fn shader_warnings(shader: any) -> string end
 fn shader_has_uniform(shader: any, name: string) -> bool end
 -- Bind and retain a texture sampler uniform.
 fn shader_send_texture(shader: any, name: string, texture: any) end
--- Send a scalar or vector uniform.
+-- Send one float/int/uint/bool vector or row-major matrix; numeric arrays preserve integer precision.
 fn shader_send(shader: any, name: string, value: any) end
 -- Send vec3/vec4 color or color array; clamp channels and convert RGB to linear when gamma correction is enabled.
 fn shader_send_color(shader: any, name: string, color: any) end

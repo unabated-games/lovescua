@@ -205,6 +205,56 @@ bytes may be shared. Identity/import roots/resource layers are configured by the
 host. `filesystem.exists` usually returns bool but preserves an SDK Error if
 permissions or I/O prevent determining existence.
 
+## Trusted native-path access
+
+Use `--allow-native-fs` to enable native paths for trusted scripts:
+
+```sh
+./build/lovescua --allow-native-fs /path/to/tool
+```
+
+```scua
+import nativefs
+fn load()
+  match nativefs.read_text("/path/to/document.txt")
+    Ok(text) -> print(text)
+    Error(reason) -> print(reason)
+  end
+end
+```
+
+The option is off by default. `nativefs.enabled()` reports the selection; every
+path operation checks it. The host explicitly grants the SCUA `fs` capability at
+`/`, so this also gives raw `import fs` access beneath that root. It permits reads
+and writes with the process's OS permissions; SCUA's reserved active-user
+marker/lock-file protections still apply. Resource/save defaults
+remain `res:`/`user:` through the existing `filesystem` facade. No pack format is
+required. The option is applied to definition checking and every reload partition.
+
+Native paths can be absolute or relative to the process working directory.
+`absolute_path` resolves existing symlinks and normalizes the path, retaining a
+non-existing suffix for new files. `cwd()` returns that working directory. Empty
+paths and embedded NULs are refused; path-resolution failures can fault. Ordinary
+filesystem I/O returns the SDK's Results, and `exists` returns bool or an I/O Error.
+
+The module provides `read`, `read_text`, `write`, `append`, `open`, `with_file`,
+`create_directory`, `remove`, `rename`, `exists`, `get_info` and
+`get_directory_items`. Whole-file read/write options follow SCUA `fs` options.
+`open` and `with_file` reuse `nativefs.stream` (the same bounded stream API as
+`file_stream`), including buffering, seeking, explicit cleanup and error handling.
+Native stream filename queries return the normalized absolute path. Stream handles
+remain partition-local and cannot be persisted or sent in messages. Native filesystem
+effects, like save-file writes, are external effects and are not rolled back by
+a failed game reload.
+
+The pinned SDK incorrectly rejects children of a `/` grant. Both local builds use
+the isolated SDK in `build/scua-sdk-nativefs`, with the small checked-in
+`scua/sdk_patches/native_fs_root.patch` applied by `build_sdk.py --native-fs-root-fix`.
+It preserves ordinary root/sibling/escape checks; the boundary fix only recognizes
+the filesystem root's existing separator. SDK provenance and patch hash are in
+`BUILD.json`; reproduction instructions are in SCUA_ACTORS.md. No sibling SCUA
+checkout was modified. This fix is needed for native-path access on this preview.
+
 ## Runtime screenshots and shader colours
 
 `love.graphics.capture_screenshot(callback = nil)` returns a request ID. After the
@@ -239,12 +289,50 @@ arrays are bounded by the declared uniform count and 1,024 colours. Start the ho
 with `--gamma-correct` to enable gamma correction before renderer initialization.
 The default remains false, matching the upstream engine's default.
 
+Ordinary `shader_send` now accepts integer/unsigned/boolean vectors and a single
+row-major matrix as well as float values. Use numeric component arrays for exact
+32-bit unsigned values, since SCUA vectors store float components. Boolean vectors
+use boolean arrays. `shader_send_matrix` additionally accepts explicit column-major
+layout; `shader_send_array` handles batches. All components are checked before
+mutation. Inactive uniforms are rejected by every upload path, and
+`shader_has_uniform` reports only active uniforms, matching upstream.
+
 The audit also added texture mip/depth/layer/colour-space/view-format metadata,
 font DPI scale, GPU buffer usages, quad viewport/source dimensions/layer editing,
 checked bulk body state/damping/mass updates, and world-space joint axes alongside
 their local axes. Quad viewports may extend beyond source dimensions for wrapping.
 `has_background_music()` returns false on desktop, as upstream does; macOS system
 vibration remains unavailable, with gamepad rumble a separate capability.
+
+## Math and PCM behaviour
+
+`noise(position)` preserves the upstream legacy dimensional choice: simplex in
+1D/2D and Perlin in 3D/4D. `simplex_noise` and `perlin_noise` select one algorithm
+in all four dimensions. Positions are a scalar, vec2, vec3 or vec4. These have
+engine-reference regression values, rather than testing only output bounds.
+
+`gamma_to_linear`/`linear_to_gamma` accept a scalar, vector or 1–4 component array,
+clamp each component to 0–1, convert RGB and preserve alpha. Gamma math is independent
+of the renderer's gamma flag. `new_random` accepts the engine's default seed, a
+signed 64-bit bit pattern, or exact unsigned low/high 32-bit words. `random_set_seed`
+also accepts both words; normal-distribution defaults are deviation 1 and mean 0.
+Game code retains explicit generators instead of using a shared Lua module-global RNG.
+
+`transform_multiply(a,b)` returns a new composition and leaves both operands intact;
+`transform_apply(a,b)` modifies a. Matrix arrays are row-major. Curve render defaults
+to accuracy 5 (bounded to 0–12), rotate/scale centers default to the origin, and
+render-segment accuracy also defaults to 5. Transform mutations return no chainable
+self value; use explicit statements. The matrix/coordinate results match direct
+engine references, including inverse and composition order.
+
+PCM `new_data` defaults match upstream: 44,100 Hz, 16-bit, two channels. Sample
+indices are zero-based; specifying a channel means a frame index plus a **one-based
+channel**, matching upstream. Omitting the channel uses an interleaved sample index.
+`set_sample(data,index,value)` and `set_sample(data,frame,channel,value)` support both
+forms. `slice_data` defaults to the remaining sample frames. `copy_data` defaults
+its destination frame to zero and supports overlapping copies. Audio `seek`, `tell`
+and `duration` accept `"seconds"` (default) or `"samples"`; samples mean frames,
+not interleaved channel elements. Validation uses OpenAL's silent backend.
 
 ## Compatibility boundaries
 
@@ -256,7 +344,7 @@ remain gaps rather than inheriting a class-wide coverage label. There is no Lua
 source compatibility or certified method-by-method behavioral parity.
 
 SCUA bytes/packed arrays replace Lua Data and binary pointer access. Files use
-res:/user: capabilities rather than Lua File objects and ambient paths. Physics
+res:/user: capabilities by default, with optional trusted native paths. Physics
 colliders combine attached shape/fixture lifetimes, meters are per world, and game
 records live in SCUA keyed by IDs. Spring conversion uses `spring_parameters` with
 forward/inverse and angular settings. Event pumping/presentation belong to the host.

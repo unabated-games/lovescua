@@ -3,19 +3,19 @@
 -- (hover, signatures, type-checking). Not runnable; list it in scua.toml [tooling.declarations].
 
 -- Create editable PCM samples (maximum 32 MiB).
-fn new_data(samples: int, rate: int, depth: int, channels: int) -> any end
+fn new_data(samples: int, rate: int = 44100, depth: int = 16, channels: int = 2) -> any end
 -- Decode WAV, Ogg Vorbis, FLAC or MP3 bytes into PCM.
 fn decode(encoded: bytes) -> any end
 -- Get PCM metadata.
 fn info(data: any) -> any end
--- Read a zero-based sample and one-based channel.
-fn get_sample(data: any, index: int, channel: int) -> float end
--- Write a PCM sample.
-fn set_sample(data: any, index: int, channel: int, value: float) end
+-- Read a zero-based interleaved index, or frame plus one-based channel.
+fn get_sample(data: any, index: int, channel: any = nil) -> float end
+-- Write interleaved sample, or frame/channel/value.
+fn set_sample(data: any, index: int, channel_or_value: any, value: any = nil) end
 -- Copy PCM data.
 fn clone(data: any) -> any end
--- Copy a sample range.
-fn slice_data(data: any, start: int, count: int) -> any end
+-- Copy sample frames; omitted count means the remaining frames.
+fn slice_data(data: any, start: int, count: any = nil) -> any end
 -- Copy PCM bytes.
 fn bytes(data: any) -> bytes end
 -- Create a managed incremental decoder.
@@ -29,6 +29,6 @@ fn decoder_seek(decoder: any, seconds: float) -> bool end
 -- Clone a decoder starting at the beginning.
 fn decoder_clone(decoder: any) -> any end
 -- Copy PCM sample frames with bounds/channel checks and native bit-depth conversion.
-fn copy_data(destination: any, source: any, source_start: int, count: int, destination_start: int) end
+fn copy_data(destination: any, source: any, source_start: int, count: int, destination_start: int = 0) end
 -- Rewind an incremental decoder.
 fn decoder_rewind(decoder: any) -> bool end

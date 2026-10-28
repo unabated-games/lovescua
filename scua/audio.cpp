@@ -63,9 +63,12 @@ Owned<love::sound::Decoder> decoder(scua_ctx *ctx, int index)
 }
 void love_sound_new_data(scua_ctx *ctx)
 {
-    arity(ctx, 4);
-    int samples = integer(ctx, 0, 1, 8000000), rate = integer(ctx, 1, 8000, 192000),
-        depth = integer(ctx, 2, 8, 16), channels = integer(ctx, 3, 1, 2);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 4)
+        throw std::invalid_argument("new_data expects sample count and optional rate/depth/channels");
+    int samples = integer(ctx, 0, 1, 8000000);
+    int rate = supplied(ctx, 1) ? integer(ctx, 1, 8000, 192000) : love::sound::Decoder::DEFAULT_SAMPLE_RATE;
+    int depth = supplied(ctx, 2) ? integer(ctx, 2, 8, 16) : love::sound::Decoder::DEFAULT_BIT_DEPTH;
+    int channels = supplied(ctx, 3) ? integer(ctx, 3, 1, 2) : love::sound::Decoder::DEFAULT_CHANNELS;
     if (depth != 8 && depth != 16)
         throw std::invalid_argument("bit depth must be 8 or 16");
     returnObject(ctx, ObjectKind::SoundData, new love::sound::SoundData(samples, rate, depth, channels));
@@ -110,22 +113,36 @@ void love_sound_info(scua_ctx *ctx)
 }
 void love_sound_get_sample(scua_ctx *ctx)
 {
-    arity(ctx, 3);
+    if (scua_arg_count(ctx) < 2 || scua_arg_count(ctx) > 3)
+        throw std::invalid_argument("get_sample expects data, index and optional channel");
     auto d = sound(ctx);
     if (d)
-        scua_return_float(ctx, d->getSample(integer(ctx, 1, 0, d->getSampleCount() - 1),
-                                            integer(ctx, 2, 1, d->getChannelCount())));
+    {
+        if (supplied(ctx, 2))
+            scua_return_float(ctx, d->getSample(integer(ctx, 1, 0, d->getSampleCount() - 1),
+                                                integer(ctx, 2, 1, d->getChannelCount())));
+        else
+            scua_return_float(
+                ctx, d->getSample(integer(ctx, 1, 0, d->getSampleCount() * d->getChannelCount() - 1)));
+    }
 }
 void love_sound_set_sample(scua_ctx *ctx)
 {
-    arity(ctx, 4);
-    auto value = number(ctx, 3);
+    if (scua_arg_count(ctx) < 3 || scua_arg_count(ctx) > 4)
+        throw std::invalid_argument("set_sample expects data, index, optional channel and value");
+    bool channel = scua_arg_count(ctx) == 4;
+    auto value = number(ctx, channel ? 3 : 2);
     if (value < -1 || value > 1)
         throw std::invalid_argument("sample must be in [-1,1]");
     auto d = sound(ctx);
     if (d)
-        d->setSample(integer(ctx, 1, 0, d->getSampleCount() - 1), integer(ctx, 2, 1, d->getChannelCount()),
-                     value);
+    {
+        if (channel)
+            d->setSample(integer(ctx, 1, 0, d->getSampleCount() - 1),
+                         integer(ctx, 2, 1, d->getChannelCount()), value);
+        else
+            d->setSample(integer(ctx, 1, 0, d->getSampleCount() * d->getChannelCount() - 1), value);
+    }
 }
 void love_sound_clone(scua_ctx *ctx)
 {
@@ -136,12 +153,14 @@ void love_sound_clone(scua_ctx *ctx)
 }
 void love_sound_slice_data(scua_ctx *ctx)
 {
-    arity(ctx, 3);
+    if (scua_arg_count(ctx) < 2 || scua_arg_count(ctx) > 3)
+        throw std::invalid_argument("slice_data expects data, start and optional count");
     auto d = sound(ctx);
     if (d)
     {
-        int start = integer(ctx, 1, 0, d->getSampleCount() - 1),
-            count = integer(ctx, 2, 1, d->getSampleCount() - start);
+        int start = integer(ctx, 1, 0, d->getSampleCount() - 1);
+        int count =
+            supplied(ctx, 2) ? integer(ctx, 2, 1, d->getSampleCount() - start) : d->getSampleCount() - start;
         returnObject(ctx, ObjectKind::SoundData, d->slice(start, count));
     }
 }
@@ -368,29 +387,46 @@ void love_audio_direction(scua_ctx *ctx)
         scua_return_vec(ctx, v, 3);
     }
 }
+love::audio::Source::Unit timeUnit(scua_ctx *ctx, int index)
+{
+    auto unit = love::audio::Source::UNIT_SECONDS;
+    if (supplied(ctx, index))
+    {
+        auto name = string(ctx, index);
+        if (!love::audio::Source::getConstant(name.c_str(), unit))
+            throw std::invalid_argument("audio time unit must be seconds or samples");
+    }
+    return unit;
+}
 void love_audio_seek(scua_ctx *ctx)
 {
-    arity(ctx, 2);
+    if (scua_arg_count(ctx) < 2 || scua_arg_count(ctx) > 3)
+        throw std::invalid_argument("seek expects source, position and optional unit");
+    auto unit = timeUnit(ctx, 2);
     auto seconds = number(ctx, 1);
     if (seconds < 0)
         throw std::invalid_argument("seek must be nonnegative");
     auto d = source(ctx);
     if (d)
-        d->seek(seconds, love::audio::Source::UNIT_SECONDS);
+        d->seek(seconds, unit);
 }
 void love_audio_tell(scua_ctx *ctx)
 {
-    arity(ctx, 1);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 2)
+        throw std::invalid_argument("tell expects source and optional unit");
+    auto unit = timeUnit(ctx, 1);
     auto d = source(ctx);
     if (d)
-        scua_return_float(ctx, d->tell(love::audio::Source::UNIT_SECONDS));
+        scua_return_float(ctx, d->tell(unit));
 }
 void love_audio_duration(scua_ctx *ctx)
 {
-    arity(ctx, 1);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 2)
+        throw std::invalid_argument("duration expects source and optional unit");
+    auto unit = timeUnit(ctx, 1);
     auto d = source(ctx);
     if (d)
-        scua_return_float(ctx, d->getDuration(love::audio::Source::UNIT_SECONDS));
+        scua_return_float(ctx, d->getDuration(unit));
 }
 void love_audio_stop_all(scua_ctx *ctx)
 {
@@ -892,19 +928,21 @@ void registerAudio(scua_partition *p, Host &state)
         p, state,
         {
             {"love_sound", "new_data", guarded<love_sound_new_data>,
-             "new_data(samples: int, rate: int, depth: int, channels: int) -> any",
+             "new_data(samples: int, rate: int = 44100, depth: int = 16, channels: int = 2) -> any",
              "Create editable PCM samples (maximum 32 MiB)."},
             {"love_sound", "decode", guarded<love_sound_decode>, "decode(encoded: bytes) -> any",
              "Decode WAV, Ogg Vorbis, FLAC or MP3 bytes into PCM."},
             {"love_sound", "info", guarded<love_sound_info>, "info(data: any) -> any", "Get PCM metadata."},
             {"love_sound", "get_sample", guarded<love_sound_get_sample>,
-             "get_sample(data: any, index: int, channel: int) -> float",
-             "Read a zero-based sample and one-based channel."},
+             "get_sample(data: any, index: int, channel: any = nil) -> float",
+             "Read a zero-based interleaved index, or frame plus one-based channel."},
             {"love_sound", "set_sample", guarded<love_sound_set_sample>,
-             "set_sample(data: any, index: int, channel: int, value: float)", "Write a PCM sample."},
+             "set_sample(data: any, index: int, channel_or_value: any, value: any = nil)",
+             "Write interleaved sample, or frame/channel/value."},
             {"love_sound", "clone", guarded<love_sound_clone>, "clone(data: any) -> any", "Copy PCM data."},
             {"love_sound", "slice_data", guarded<love_sound_slice_data>,
-             "slice_data(data: any, start: int, count: int) -> any", "Copy a sample range."},
+             "slice_data(data: any, start: int, count: any = nil) -> any",
+             "Copy sample frames; omitted count means the remaining frames."},
             {"love_sound", "bytes", guarded<love_sound_bytes>, "bytes(data: any) -> bytes",
              "Copy PCM bytes."},
             {"love_audio", "new_source", guarded<love_audio_new_source>, "new_source(data: any) -> any",
@@ -956,12 +994,12 @@ void registerAudio(scua_partition *p, Host &state)
              "set_direction(source: any, value: vec3)", "Set the source direction."},
             {"love_audio", "direction", guarded<love_audio_direction>, "direction(source: any) -> vec3",
              "Get the source direction."},
-            {"love_audio", "seek", guarded<love_audio_seek>, "seek(source: any, seconds: float)",
-             "Seek in seconds."},
-            {"love_audio", "tell", guarded<love_audio_tell>, "tell(source: any) -> float",
-             "Playback time in seconds."},
-            {"love_audio", "duration", guarded<love_audio_duration>, "duration(source: any) -> float",
-             "Playback time in seconds."},
+            {"love_audio", "seek", guarded<love_audio_seek>,
+             "seek(source: any, position: float, unit: string = \"seconds\")", "Seek in seconds."},
+            {"love_audio", "tell", guarded<love_audio_tell>,
+             "tell(source: any, unit: string = \"seconds\") -> float", "Playback time in seconds."},
+            {"love_audio", "duration", guarded<love_audio_duration>,
+             "duration(source: any, unit: string = \"seconds\") -> float", "Playback time in seconds."},
             {"love_audio", "stop_all", guarded<love_audio_stop_all>, "stop_all()", "Stop every source."},
             {"love_audio", "set_master_volume", guarded<love_audio_set_master_volume>,
              "set_master_volume(value: float)", "Set listener volume."},

@@ -16,12 +16,12 @@ fn curve_derivative(curve: any) -> any end
 fn curve_insert(curve: any, index: int, point: vec2) end
 -- Remove a zero-based curve control point.
 fn curve_remove(curve: any, index: int) end
--- Rotate curve points around a center.
-fn curve_rotate(curve: any, radians: float, center: vec2) end
--- Scale curve points around a center.
-fn curve_scale(curve: any, factor: float, center: vec2) end
+-- Rotate curve points around a center (default origin).
+fn curve_rotate(curve: any, radians: float, center: any = nil) end
+-- Scale curve points around a center (default origin).
+fn curve_scale(curve: any, factor: float, center: any = nil) end
 -- Render a bounded native curve segment.
-fn curve_render_segment(curve: any, start: float, finish: float, accuracy: int) -> any end
+fn curve_render_segment(curve: any, start: float, finish: float, accuracy: int = 5) -> any end
 -- Get exact low/high 32-bit seed words.
 fn random_seed(generator: any) -> any end
 -- Get a flat row-major 4x4 matrix.
@@ -29,25 +29,25 @@ fn transform_matrix(transform: any) -> any end
 -- Set a checked row-major 4x4 matrix.
 fn transform_set_matrix(transform: any, matrix: any) end
 -- Create a managed seeded random generator.
-fn new_random(seed: int) -> any end
+fn new_random(seed: any = nil, high: any = nil) -> any end
 -- Uniform random value in [0,1).
 fn random(generator: any) -> float end
 -- Uniform integer in an inclusive range.
 fn random_int(generator: any, minimum: int, maximum: int) -> int end
 -- Normally distributed random value.
-fn random_normal(generator: any, deviation: float, mean: float) -> float end
+fn random_normal(generator: any, deviation: float = 1, mean: float = 0) -> float end
 -- Read generator state.
 fn random_state(generator: any) -> string end
 -- Restore generator state.
 fn random_set_state(generator: any, state: string) end
 -- Reset the seed.
-fn random_set_seed(generator: any, seed: int) end
+fn random_set_seed(generator: any, seed: int, high: any = nil) end
 -- Create a managed Bezier curve from vec2 control points.
 fn new_curve(points: any) -> any end
 -- Evaluate a curve at t in [0,1].
 fn curve_evaluate(curve: any, t: float) -> vec2 end
 -- Subdivide the curve into drawable points.
-fn curve_render(curve: any, accuracy: int) -> any end
+fn curve_render(curve: any, accuracy: int = 5) -> any end
 -- Get polynomial degree.
 fn curve_degree(curve: any) -> int end
 -- Get a zero-based control point.
@@ -58,14 +58,16 @@ fn curve_set_point(curve: any, index: int, position: vec2) end
 fn curve_segment(curve: any, start: float, finish: float) -> any end
 -- Translate control points.
 fn curve_translate(curve: any, offset: vec2) end
--- Convert a color component.
-fn gamma_to_linear(value: float) -> float end
--- Convert a color component.
-fn linear_to_gamma(value: float) -> float end
--- Two dimensional simplex noise.
-fn noise(position: vec2) -> float end
--- Two dimensional Perlin noise.
-fn perlin_noise(position: vec2) -> float end
+-- Clamp and convert scalar/vector/1..4 array RGB; preserve alpha.
+fn gamma_to_linear(value: any) -> any end
+-- Clamp and convert scalar/vector/1..4 array RGB; preserve alpha.
+fn linear_to_gamma(value: any) -> any end
+-- Legacy noise: simplex in 1D/2D, Perlin in 3D/4D; scalar or vec2/3/4.
+fn noise(position: any) -> float end
+-- Perlin noise in 1..4 dimensions; scalar or vec2/3/4.
+fn perlin_noise(position: any) -> float end
+-- Simplex noise in 1..4 dimensions; scalar or vec2/3/4.
+fn simplex_noise(position: any) -> float end
 -- Test polygon convexity.
 fn is_convex(points: any) -> bool end
 -- Triangulate a simple polygon into consecutive triples of vertices.
@@ -88,6 +90,8 @@ fn transform_rotate(transform: any, radians: float) end
 fn transform_reset(transform: any) end
 -- Compose transforms.
 fn transform_apply(transform: any, other: any) end
+-- Compose into a new transform, preserving both operands.
+fn transform_multiply(transform: any, other: any) -> any end
 -- Map a point through the transform.
 fn transform_point(transform: any, point: vec2) -> vec2 end
 -- Map a point through the transform.

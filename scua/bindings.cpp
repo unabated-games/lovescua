@@ -387,11 +387,13 @@ void registerBindings(scua_partition *p, Host &state)
     registerGraphicsExtras(p, state);
     registerJobs(p, state);
     registerScreenshots(p, state);
+    registerNativeFilesystem(p, state);
 }
 
 const std::vector<std::string> &bindingModules()
 {
     static const std::vector<std::string> modules = {"love_window",
+                                                     "love_nativefs",
                                                      "love_object",
                                                      "love_jobs",
                                                      "love_job_reads",

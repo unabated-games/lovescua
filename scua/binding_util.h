@@ -243,9 +243,9 @@ inline void registerFunction(scua_partition *p, Host &state, const Binding &b)
         std::strcmp(b.module, "love_data") == 0 || std::strcmp(b.module, "love_physics") == 0 ||
         std::strcmp(b.module, "love_sound") == 0 || std::strcmp(b.module, "love_audio") == 0 ||
         std::strcmp(b.module, "love_timer") == 0 || key == "love_system.hardware_info" ||
-        key == "love_system.has_background_music" || key == "love_graphics.release" ||
-        key == "love_event.quit" || key == "love_event.reload" || key == "love_event.reload_status" ||
-        std::strcmp(b.module, "love_object") == 0)
+        std::strcmp(b.module, "love_nativefs") == 0 || key == "love_system.has_background_music" ||
+        key == "love_graphics.release" || key == "love_event.quit" || key == "love_event.reload" ||
+        key == "love_event.reload_status" || std::strcmp(b.module, "love_object") == 0)
         state.cpuAllowed.insert(b.fn);
     if (key == "love_graphics.capture_screenshot" || key == "love_system.set_clipboard_text" ||
         key == "love_system.open_url" || key == "love_window.show_message_box" ||

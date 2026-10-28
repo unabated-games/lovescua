@@ -1,4 +1,4 @@
-> Current conversion results are in the 2026-10-28 audit follow-up below. SDK and concurrency results are in the PR #833 section. Earlier entries retain their historical versions and counts.
+> Current results are in the native-path and behavioural follow-up at the end. Earlier entries retain their historical SDK versions, counts and scope.
 
 # macOS conversion validation — 2026-10-22
 
@@ -296,3 +296,55 @@ remain documented in [runtime contracts](SCUA_RUNTIME.md). A typed-return record
 with an `any = nil` default is rejected by this SDK; the screenshot helper uses
 an explicit pending Error. The minimal observation is in the manual
 [SCUA follow-up](SCUA_039_HANDOFF.md#additional-integration-observation--2026-10-28).
+
+## Trusted native paths and behavioural follow-up — 2026-10-28
+
+User scope: add explicitly enabled native-path access for trusted scripts, then
+review and fix behavioural differences before discussing a complete game.
+Platforms/distribution and game development were not included.
+
+`--allow-native-fs` enables the separate SCUA `nativefs` facade. Tests verify
+denial without the option, absolute/relative paths and existing symlinks, binary
+reads/writes, append, rooted stream reuse, scoped cleanup on a script fault,
+directory metadata, rename/remove and grant retention after reload. Ordinary
+resource reads and explicit user-folder writes still work in the same process.
+Tests create and modify only disposable fixtures.
+
+The pinned SDK accepted a `/` grant but its boundary predicate required a second
+separator after the root and rejected all descendants. The small source patch in
+`scua/sdk_patches/native_fs_root.patch` recognizes that root separator and preserves
+ordinary prefix-sibling checks. The SDK helper applies it in the isolated source
+copy and records its SHA-256 in BUILD.json. Both builds now use
+`build/scua-sdk-nativefs`, based on the same PR #833 commit and ABI/version. The
+filtered SDK library run passed all three matching tests; native-path integration
+and the existing ordinary-root escape regressions pass. The sibling SCUA checkout
+was not modified, and no issue/message was sent externally.
+
+Behaviour fixes and evidence:
+
+| Area | Correction and verification |
+| --- | --- |
+| Noise | Scalar/vec2/vec3/vec4 support; legacy noise selects simplex for 1D/2D and Perlin for 3D/4D. Explicit simplex/perlin functions match independent direct-engine reference values. |
+| RNG | Default generator seed, exact low/high 32-bit seed words and normal-distribution defaults. Eight generated values and cached normal values match direct engine calls; reseeding/state restore and inclusive integer bounds are checked. |
+| Colour math | Scalar/vector/array clamping, RGB transfer and unconverted alpha. Checks include boundaries, known sRGB values and round trips. |
+| Transforms/curves | Multiplication now has a nonmutating destination instead of incorrectly mapping to apply. Matrix order and transformed coordinates match engine reference values; inverse/composition preserve their operands. Curve defaults, derivative, segment endpoints and origin-based rotate/scale are checked. |
+| PCM/audio | Upstream creation defaults, interleaved sample access, explicit frame/channel access, remaining-length slicing, copy defaults/overlap and clone independence. Seek/tell/duration support sample frames or seconds; invalid units preserve position. Silent OpenAL backend only. |
+| Shader uploads | Single integer/uint/bool vectors and row-major matrices; exact uint32 arrays; column-major matrix path. Inactive uniforms are refused consistently and hasUniform reflects activity. Invalid later components leave previous uniform values intact. Renderer pixel checks cover the accepted values. |
+| Binary data | All six hash algorithms match Python's standard hashlib for bytes containing NUL. Hex/base64 fixtures and lz4/zlib/gzip/deflate round trips pass. |
+
+Validation: **23** audio-enabled and **20** audio-disabled window-free CTests pass.
+The new engine-reference executable calls engine math directly; it does not invoke
+the SCUA bindings. All **27/23** compatible example definitions load without windows,
+and **23/21** generated declaration modules match their respective executables.
+The registry has **721 native functions in 23 modules**, plus SCUA facades.
+
+Exactly three brief graphical checks ran, sequentially at batch end: Metal with
+gamma off, Metal with gamma on, and OpenGL with gamma on. All passed on the first
+run for this follow-up. No full graphical/example sweep or new hardware checks ran.
+
+This is behavioural coverage of the reviewed cases, not proof of every Lua
+overload/default in all 1,090 audit entries. SCUA argument shapes, explicit RNG
+ownership, non-chainable transform setters, binary formats/pointers, rooted default
+file access, allocation limits, actor messages and renderer/hardware constraints
+remain documented in SCUA_RUNTIME.md and SCUA_COMPATIBILITY.md. The earlier
+nil-default typed-record issue still has the pending-Error workaround.

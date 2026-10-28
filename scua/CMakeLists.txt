@@ -55,7 +55,7 @@ set(scua_thread_support
     ../src/modules/thread/sdl/threads.cpp
     ../src/modules/thread/sdl/Thread.cpp)
 add_executable(lovescua
-    main.cpp bindings.cpp graphics.cpp platform.cpp objects.cpp math.cpp
+    main.cpp bindings.cpp graphics.cpp platform.cpp objects.cpp math.cpp native_filesystem.cpp
     data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp jobs.cpp screenshots.cpp
     ${scua_thread_support}
     ../src/modules/video/VideoStream.cpp
@@ -94,6 +94,9 @@ endif()
 if(BUILD_TESTING)
     add_executable(scua_test_input test_input.cpp input.cpp resources.cpp ${scua_thread_support})
     get_target_property(scua_host_libraries lovescua LINK_LIBRARIES)
+    add_executable(scua_behavior_reference test_behavior_reference.cpp)
+    target_link_libraries(scua_behavior_reference PRIVATE ${scua_host_libraries})
+    add_dependencies(lovescua scua_behavior_reference)
     target_link_libraries(scua_test_input PRIVATE ${scua_host_libraries})
     add_dependencies(lovescua scua_test_input)
     add_executable(scua_test_dialogs test_dialogs.cpp ${scua_thread_support})
@@ -119,6 +122,13 @@ if(BUILD_TESTING)
         --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/bounce/main.scua")
     set_tests_properties(scua_bounce_opengl PROPERTIES TIMEOUT 30)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME scua_behavior COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_behavior.py"
+        "$<TARGET_FILE:lovescua>" "$<TARGET_FILE:scua_behavior_reference>")
+    set_tests_properties(scua_behavior PROPERTIES TIMEOUT 30 LABELS "no-window")
+    if(LOVE_SCUA_AUDIO)
+        add_test(NAME scua_audio_behavior COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_audio_behavior.py" "$<TARGET_FILE:lovescua>")
+        set_tests_properties(scua_audio_behavior PROPERTIES TIMEOUT 30 LABELS "no-window" ENVIRONMENT "ALSOFT_DRIVERS=null")
+    endif()
     add_executable(scua_test_ogg_audio test_ogg_audio.cpp)
     target_compile_features(scua_test_ogg_audio PRIVATE cxx_std_17)
     add_test(NAME scua_ogg_audio COMMAND scua_test_ogg_audio)
@@ -144,8 +154,9 @@ if(BUILD_TESTING)
     add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
     add_test(NAME scua_streams COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_streams.py" "$<TARGET_FILE:lovescua>")
+    add_test(NAME scua_nativefs COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_nativefs.py" "$<TARGET_FILE:lovescua>")
     add_test(NAME scua_method_coverage COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_coverage.py" "$<TARGET_FILE:lovescua>")
-    set_tests_properties(scua_streams scua_method_coverage PROPERTIES TIMEOUT 40 LABELS "no-window")
+    set_tests_properties(scua_streams scua_nativefs scua_method_coverage PROPERTIES TIMEOUT 40 LABELS "no-window")
     add_test(NAME scua_jobs COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_jobs.py" "$<TARGET_FILE:lovescua>")
     add_test(NAME scua_actor_demo_serial COMMAND lovescua --headless --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")
     add_test(NAME scua_actor_demo_workers COMMAND lovescua --headless --workers 4 --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")

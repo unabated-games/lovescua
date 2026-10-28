@@ -55,11 +55,11 @@ fn set_direction(source: any, value: vec3) end
 -- Get the source direction.
 fn direction(source: any) -> vec3 end
 -- Seek in seconds.
-fn seek(source: any, seconds: float) end
+fn seek(source: any, position: float, unit: string = "seconds") end
 -- Playback time in seconds.
-fn tell(source: any) -> float end
+fn tell(source: any, unit: string = "seconds") -> float end
 -- Playback time in seconds.
-fn duration(source: any) -> float end
+fn duration(source: any, unit: string = "seconds") -> float end
 -- Stop every source.
 fn stop_all() end
 -- Set listener volume.

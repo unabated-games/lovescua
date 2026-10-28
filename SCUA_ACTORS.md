@@ -163,6 +163,11 @@ startup; compile-time checks also require `SCUA_FAULT_ERROR` from the embedding
 follow-ups. Version/ABI numbers alone cannot distinguish the original 0.38 SDK from
 this preview: use the matching pinned header and library, not a mixed pair.
 
+The 2026-10-28 native-path follow-up additionally applies
+`scua/sdk_patches/native_fs_root.patch` in the isolated source copy. This fixes the
+SDK rejecting every descendant of an explicit `/` grant. Both current local builds
+use `build/scua-sdk-nativefs`; version/ABI and concurrency APIs are unchanged.
+
 Reproduce using a matching SCUA git checkout or bare mirror. This workspace has
 the fetched PR snapshot in `build/scua-upstream.git`. PR #833 was not merged at
 verification time. In a fresh workspace, first run
@@ -174,13 +179,16 @@ another checkout containing it):
 git --git-dir=build/scua-upstream.git fetch git@github.com:unabated-games/scua.git refs/pull/833/head:refs/lovescua/pr-833
 python3 scua/build_sdk.py --source build/scua-upstream.git \
   --revision 85814a6491eb2db3d23dce79efc0c93dfb6024a1 \
-  --zig /path/to/zig-0.16 --output build/scua-sdk-0.39-preview
-cmake -S . -B build -DSCUA_ROOT="$PWD/build/scua-sdk-0.39-preview"
+  --zig /path/to/zig-0.16 --output build/scua-sdk-nativefs --native-fs-root-fix
+cmake -S . -B build -DSCUA_ROOT="$PWD/build/scua-sdk-nativefs"
 cmake --build build -j2
 ```
 
 The helper snapshots tracked source into the build directory and uses local caches;
-it does not modify/build in the SCUA checkout. `BUILD.json` records SDK provenance.
+it does not modify/build in the SCUA checkout. `BUILD.json` records SDK provenance
+and the applied patch's SHA-256. Omit the patch option when reproducing the older
+SDK without native-path support. The patch is applied with no fuzzy matching and
+fails if its source context no longer matches; review it before using a newer revision.
 An installed CLI alone does not supply a matching embedding library. An optional `--target`
 can select an appropriate Zig target/minimum OS when building an SDK; this batch
 makes no new platform/distribution guarantees.

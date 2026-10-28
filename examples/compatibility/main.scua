@@ -28,14 +28,27 @@ end
 fn load()
   love.window.set_mode(256,192)
   love.window.set_title("SCUA compatibility coverage")
-  shader=love.graphics.new_shader("extern vec4 colors[2]; extern vec4 unusedColor; vec4 effect(vec4 c, Image t, vec2 uv, vec2 px) { return px.x < love_ScreenSize.x * 0.5 ? colors[0] : colors[1]; }")
+  shader=love.graphics.new_shader("#pragma language glsl3\nextern vec4 colors[2]; extern vec3 accent; extern ivec2 gates; extern uint token; extern bool toggle; extern mat2 basis; extern vec4 unusedColor; extern mat4 unusedMatrix; extern Image unusedTexture; vec4 effect(vec4 c, Image t, vec2 uv, vec2 px) { if (gates != ivec2(3,4) || token != 4294967295u || !toggle || basis[0][1] != 3.0 || basis[1][0] != 2.0 || accent != vec3(0,1,0)) return vec4(1,0,1,1); return px.x < love_ScreenSize.x * 0.5 ? colors[0] : colors[1]; }")
   love.graphics.shader_send_color(shader,"colors",[vec4(-1,0.5,2,1),vec4(0.25,1,-3,1)])
+  love.graphics.shader_send_color(shader,"accent",vec3(-1,2,0))
+  love.graphics.shader_send(shader,"gates",[3,4])
+  love.graphics.shader_send(shader,"token",4294967295)
+  love.graphics.shader_send(shader,"toggle",true)
+  love.graphics.shader_send(shader,"basis",[1,2,3,4])
+  fails(fn() love.graphics.shader_send(shader,"gates",[99,4.5]) end)
+  fails(fn() love.graphics.shader_send(shader,"token",-1) end)
+  fails(fn() love.graphics.shader_send(shader,"toggle",1) end)
   fails(fn() love.graphics.shader_send_color(shader,"colors",[vec4(1,1,1,1),vec3(1,1,1)]) end)
   fails(fn() love.graphics.shader_send_color(shader,"missing",vec4(1,1,1,1)) end)
   fails(fn() love.graphics.shader_send_color(shader,"unusedColor",vec4(1,1,1,1)) end)
+  assert(not love.graphics.shader_has_uniform(shader,"unusedColor"))
+  fails(fn() love.graphics.shader_send(shader,"unusedColor",vec4(1,1,1,1)) end)
+  fails(fn() love.graphics.shader_send_array(shader,"unusedColor",[vec4(1,1,1,1)]) end)
+  fails(fn() love.graphics.shader_send_matrix(shader,"unusedMatrix",[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]) end)
   -- Resource dimensions must not accidentally resolve to WINDOW dimensions.
   let texture=love.graphics.new_texture({type="2d",width=16,height=8,format="rgba8",linear=true,mipmaps="manual"})
   let info=love.graphics.texture_info(texture,1)
+  fails(fn() love.graphics.shader_send_texture(shader,"unusedTexture",texture) end)
   assert(info.width==8 and info.height==4 and info.pixel_width==8 and info.pixel_height==4)
   assert(info.depth==1 and info.layer_count==1)
   -- Upstream isFormatLinear reports false whenever gamma correction is disabled.
@@ -62,6 +75,10 @@ fn load()
 end
 fn update(dt)
   frame=frame+1
+  if frame==2 then
+    love.graphics.shader_send_matrix(shader,"basis",[1,3,2,4],true)
+    fails(fn() love.graphics.shader_send_matrix(shader,"basis",[1,2,3]) end)
+  end
   for result in love.graphics.screenshot_results() do
     assert(result.error==nil and result.id>0)
     polled.push(result.id)

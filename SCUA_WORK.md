@@ -1,4 +1,4 @@
-> Current status: the 2026-10-28 batch below closes the audited non-platform feature gaps and replaces blanket family coverage. The pinned SDK includes PR #833; a newly observed nil-default record edge case has a local workaround. Earlier entries retain historical behavior/counts.
+> Current status: trusted native paths and the behavioural follow-up are implemented and verified below. The isolated SDK includes PR #833 plus a filesystem-root boundary fix. Earlier entries retain historical SDK behavior/counts.
 
 # Completed feature conversion batch
 
@@ -282,3 +282,31 @@ helper uses `Error("capture pending")`; a small manual repro is recorded for the
 SCUA team. Stream buffer finalization, append position/path identity, Lua overload
 differences, capability boundaries and renderer limits remain explicit contracts,
 not claims of complete Lua compatibility. See SCUA_RUNTIME.md and SCUA_VALIDATION.md.
+
+## Trusted native paths and behaviour (2026-10-28 follow-up)
+
+Implemented the requested explicit `--allow-native-fs` option and `nativefs`
+facade, reusing SCUA's file capability and the existing stream implementation.
+The grant survives reload, defaults remain rooted, and disabled access is tested.
+A bug in the pinned SDK's `/` boundary check required a small isolated source
+patch. The helper records the patch hash; the SCUA checkout stays unchanged. The
+patch, reproduction and verified results are recorded for manual forwarding.
+
+Reviewed upstream wrappers and corrected concrete behavioural mismatches: legacy
+noise dimensional algorithms, explicit 1–4D noise, colour clamping/alpha handling,
+RNG seed/default forms, curve defaults, nonmutating transform multiplication, PCM
+defaults/interleaved samples and audio time units. Shader scalar/vector/matrix
+uploads now cover integer/uint/bool data and consistently reject inactive uniforms.
+The migration index points multiplication and simplex noise to their correct
+destinations and records native paths as an opt-in adaptation.
+
+Added direct-engine math reference comparisons, standard binary hash/codec cases,
+PCM/source unit checks and native filesystem/reload tests. All 23 audio-enabled
+and 20 audio-disabled window-free CTests pass. The three short sequential renderer
+checks pass, and all 27/23 compatible example definitions and 23/21 declaration
+modules are checked. The SDK's three filtered root tests pass. The API inventory
+is now 721 functions/23 modules. No game, new platform or distribution work was done.
+
+Remaining behaviour differences and the bounded coverage of these checks are
+explicit in SCUA_RUNTIME.md and SCUA_VALIDATION.md; this is not a claim of complete
+Lua overload equivalence or hardware certification.
