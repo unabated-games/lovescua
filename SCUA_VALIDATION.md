@@ -1,4 +1,4 @@
-> Current SDK and concurrency results are in the PR #833 source-ownership section below. The original 2026-10-22 record retains its historical versions; installed SDL selection is corrected in the controller follow-up.
+> Current conversion results are in the 2026-10-28 audit follow-up below. SDK and concurrency results are in the PR #833 section. Earlier entries retain their historical versions and counts.
 
 # macOS conversion validation — 2026-10-22
 
@@ -250,3 +250,49 @@ audio-disabled build. This includes actor faults, Error/type-mismatch notificati
 reload, budgets, worker affinity/posting, CPU images, script checking and lifecycle
 regressions. No graphical tests were run for this update. The earlier record of a
 failing name diagnostic is historical and superseded by these results.
+
+## Method audit and remaining macOS features — 2026-10-28
+
+Both audio-enabled and audio-disabled hosts build against the unchanged pinned
+PR #833 SDK. The registry now exposes 717 native functions in 22 modules; the
+filesystem/stream/file-data/screenshot facades are additional SCUA code. Other
+platforms and distribution work were excluded.
+
+Replaced all 402 blanket Family mappings with explicit method destinations and
+record fields. The generator checks field evidence in the named C++ function,
+links to its source, resolves facade exports, and refuses same-name global/object
+collisions. All 1,090 registrations in 73 wrapper files have a destination or an
+explicit boundary: 377 Adapted, 293 Named, 311 Record, 66 Replacement, 15 Host-owned
+and 28 Excluded. Zero Gap/Family rows means source coverage, not certified Lua
+overload/default equality. Synthetic unreviewed methods/classes remain gaps.
+
+The window-free suites pass 20 checks with audio and 18 without. New checks use
+real directory and deflated-pack streams, CRLF/blank/EOF lines, byte positions,
+read-ahead, seeking, full/line/zero-sized buffers, non-flushing size queries,
+sync/append/exclusive/update writes, body-fault/failed-flush cleanup, named bytes,
+rejected traversal/resource writes/symlink escapes, recovery from invalid UTF-8
+and overlong lines, and a 34 MiB file processed in bounded chunks. Physics checks
+cover bulk state/mass/damping, rejected atomic updates, omitted-field preservation
+and rotated world/local joint axes. The desktop music probe matches upstream false.
+
+All 27 example entry scripts load with `--check` and an explicit temporary save
+grant; 23 entries compatible with disabled audio load in that host. Generated
+declarations match both executables: 22 modules with audio, 20 without.
+
+The three-frame `examples/compatibility` scene passes on Metal with gamma disabled,
+Metal with gamma enabled, and OpenGL with gamma enabled. Pixel checks verify
+shader colour clamping/conversion and rejected-update atomicity. The scene checks
+runtime screenshot callbacks and polling, requests made by callbacks on the next
+frame, filesystem PNG saving, cancellation on teardown, texture mip/depth/layer
+metadata, quad viewport/layers, buffer usages and font DPI scale. The saved helper
+PNG was inspected. Graphical development checks were confined to this small scene,
+run sequentially at batch end; failed checks were rerun while diagnosing/fixing
+the upstream linearity expectation and the SCUA nil-default record issue.
+The full graphical suite and physical hardware checks were not run.
+
+Stream buffered data requires explicit close/with_file; native teardown cannot
+flush a forgotten SCUA buffer. Append position/path identity and renderer limits
+remain documented in [runtime contracts](SCUA_RUNTIME.md). A typed-return record
+with an `any = nil` default is rejected by this SDK; the screenshot helper uses
+an explicit pending Error. The minimal observation is in the manual
+[SCUA follow-up](SCUA_039_HANDOFF.md#additional-integration-observation--2026-10-28).

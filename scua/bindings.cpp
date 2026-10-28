@@ -189,10 +189,9 @@ void newQuad(scua_ctx *ctx)
     auto image = imageArgument(ctx, 0);
     if (!image)
         return;
-    if (position[0] < 0 || position[1] < 0 || size[0] <= 0 || size[1] <= 0 ||
-        static_cast<double>(position[0]) + size[0] > image->texture->getWidth() ||
-        static_cast<double>(position[1]) + size[1] > image->texture->getHeight())
-        throw std::invalid_argument("quad rectangle must fit inside its image and have positive size");
+    if (std::abs(position[0]) > 1e6 || std::abs(position[1]) > 1e6 || size[0] <= 0 || size[1] <= 0 ||
+        size[0] > 1e6 || size[1] > 1e6)
+        throw std::invalid_argument("quad position/size exceeds supported range");
     love::graphics::Quad::Viewport viewport{position[0], position[1], size[0], size[1]};
     EnginePtr<love::graphics::Quad> quad(
         graphics(ctx, false).newQuad(viewport, image->texture->getWidth(), image->texture->getHeight()));
@@ -387,6 +386,7 @@ void registerBindings(scua_partition *p, Host &state)
     registerResources(p, state);
     registerGraphicsExtras(p, state);
     registerJobs(p, state);
+    registerScreenshots(p, state);
 }
 
 const std::vector<std::string> &bindingModules()

@@ -2,6 +2,8 @@
 -- Results remain Results, so missing/corrupt saves can be handled with match or ?.
 import fs
 import str
+import file_stream
+import file_data
 
 fn resource(path: string) -> string
   if str.starts_with(path, "res:") or str.starts_with(path, "user:") then return path end
@@ -38,7 +40,8 @@ fn rename(source: string, destination: string)
   return fs.rename(save(source), save(destination))
 end
 
-fn exists(path: string) -> bool
+-- Usually bool; preserve the SDK's Error when access or I/O prevents a lookup.
+fn exists(path: string)
   return fs.exists(resource(path))
 end
 
@@ -66,7 +69,47 @@ fn write_atomic(path: string, content)
   end
 end
 
+fn append(path: string, content)
+  assert(type(content)=="string" or type(content)=="bytes","append expects string or bytes")
+  match fs.open(save(path),{mode="append"})
+    Error(reason) -> return Error(reason)
+    Ok(handle) -> do
+      let written=fs.write_chunk(handle,content)
+      let closed=fs.close(handle)
+      match written
+        Error(reason) -> return Error(reason)
+        Ok(count) -> do
+          match closed
+            Error(reason) -> return Error(reason)
+            Ok(_) -> return Ok(count)
+          end
+        end
+      end
+    end
+  end
+end
+fn read_file_data(path: string)
+  match read(path)
+    Error(reason) -> return Error(reason)
+    Ok(data) -> return Ok(file_data.new(data,path))
+  end
+end
+fn mount(path: string, settings = nil)
+  return fs.mount(resource(path),settings)
+end
+fn get_identity()
+  let user=fs.mounts().user
+  return if user==nil then nil else user.id end
+end
 return {
+  stream = file_stream,
+  file_data = file_data,
+  new_file_data = file_data.new,
+  read_file_data = read_file_data,
+  append = append,
+  mount = mount,
+  get_identity = get_identity,
+  open = file_stream.open,
   read = read,
   read_text = read_text,
   write = write,

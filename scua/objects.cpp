@@ -96,6 +96,7 @@ void font_metrics(scua_ctx *ctx)
     r.num("height", f->getHeight());
     r.num("line_height", f->getLineHeight());
     r.num("baseline", f->getBaseline());
+    r.num("dpi_scale", f->getDPIScale());
     r.integer("ascent", f->getAscent());
     r.integer("descent", f->getDescent());
     r.done();
@@ -438,6 +439,61 @@ std::vector<double> uniformComponents(scua_partition *p, scua_Handle value, int 
         throw std::invalid_argument("uniform component count mismatch");
     return values;
 }
+void shader_send_color(scua_ctx *ctx)
+{
+    arity(ctx, 3);
+    auto name = string(ctx, 1);
+    auto s = shader(ctx);
+    if (!s)
+        return;
+    auto info = s->getUniformInfo(name);
+    if (!info || !info->active || info->baseType != love::graphics::Shader::UNIFORM_FLOAT ||
+        (info->components != 3 && info->components != 4))
+        throw std::invalid_argument("shader_send_color requires an active vec3 or vec4 uniform");
+    auto p = scua_ctx_partition(ctx);
+    auto input = scua_arg(ctx, 2);
+    auto first = scua_index(p, input, 0);
+    float vec[4];
+    bool array = scua_typeof(p, input) == SCUA_TYPE_ARRAY &&
+                 (scua_typeof(p, first) == SCUA_TYPE_ARRAY || scua_to_vec(p, first, vec, 4) > 0);
+    std::vector<float> output;
+    auto add = [&](scua_Handle value)
+    {
+        auto values = uniformComponents(p, value, info->components);
+        love::Colorf color(0, 0, 0, 1);
+        color.r = std::clamp(values[0], 0.0, 1.0);
+        color.g = std::clamp(values[1], 0.0, 1.0);
+        color.b = std::clamp(values[2], 0.0, 1.0);
+        if (info->components == 4)
+            color.a = std::clamp(values[3], 0.0, 1.0);
+        love::graphics::gammaCorrectColor(color);
+        output.insert(output.end(), {color.r, color.g, color.b});
+        if (info->components == 4)
+            output.push_back(color.a);
+    };
+    int count = 0;
+    if (array)
+    {
+        for (; count <= std::min(info->count, 1024); ++count)
+        {
+            auto item = scua_index(p, input, count);
+            if (!scua_handle_valid(p, item))
+                break;
+            if (count == std::min(info->count, 1024))
+                throw std::invalid_argument("color array exceeds declared size or 1024 colors");
+            add(item);
+        }
+    }
+    else
+    {
+        add(input);
+        count = 1;
+    }
+    if (count == 0)
+        throw std::invalid_argument("color array must not be empty");
+    std::copy(output.begin(), output.end(), info->floats);
+    s->updateUniform(info, count);
+}
 void shader_send_array(scua_ctx *ctx)
 {
     arity(ctx, 3);
@@ -647,6 +703,10 @@ void registerObjects(scua_partition *p, Host &state)
              "Bind and retain a texture sampler uniform."},
             {"love_graphics", "shader_send", guarded<shader_send>,
              "shader_send(shader: any, name: string, value: any)", "Send a scalar or vector uniform."},
+            {"love_graphics", "shader_send_color", guarded<shader_send_color>,
+             "shader_send_color(shader: any, name: string, color: any)",
+             "Send vec3/vec4 color or color array; clamp channels and convert RGB to linear when gamma "
+             "correction is enabled."},
             {"love_graphics", "shader_send_array", guarded<shader_send_array>,
              "shader_send_array(shader: any, name: string, values: any)",
              "Send an array of scalars/vectors or flat row-major matrices, maximum 1024 elements."},

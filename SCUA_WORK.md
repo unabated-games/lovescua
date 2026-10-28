@@ -1,4 +1,4 @@
-> Current status: the pinned SCUA 0.39 preview includes PR #833 source ownership; all reported embedding issues are resolved in our checks. See the latest follow-up below. Earlier entries retain their original SDK behavior.
+> Current status: the 2026-10-28 batch below closes the audited non-platform feature gaps and replaces blanket family coverage. The pinned SDK includes PR #833; a newly observed nil-default record edge case has a local workaround. Earlier entries retain historical behavior/counts.
 
 # Completed feature conversion batch
 
@@ -250,3 +250,35 @@ No graphical scenes were run. Updated SDK reproduction instructions and marked
 the historical name handoff resolved; there is no remaining failure from our
 reported embedding issues in these checks. Platform/distribution exclusions and
 manual hardware checks remain unchanged.
+
+## Remaining feature gaps and audit (2026-10-28)
+
+Completed within the requested three-hour cap, excluding platforms/distribution:
+
+- Rooted SCUA streams with chunked bytes, UTF-8 lines, seek/tell/EOF/size,
+  buffering, flush/sync, append/exclusive/update modes and scoped cleanup.
+  Named bytes provide FileData metadata without native pointers.
+- Runtime screenshot callbacks and polled results, bounded outstanding requests,
+  post-presentation script delivery, managed image ownership and reload/teardown
+  cancellation. An optional SCUA helper encodes and atomically saves captures.
+- Shader colour uploads with clamping, gamma-aware RGB conversion and atomic
+  input validation. Added the startup `--gamma-correct` option.
+- Completed metadata/property gaps for texture mip/depth/layers/linearity/view
+  formats, font DPI, buffer usages, quad viewport/source dimensions/layer setters,
+  bulk body state/damping/mass and world-space joint axes. Desktop background-music
+  queries match the upstream false result; system vibration remains unavailable.
+- Removed all 402 class-wide Family mappings. The 1,090-entry index now names
+  concrete methods/record fields or explicit language/host/platform boundaries.
+  Unknown methods and object/global naming collisions remain visible as gaps.
+
+Validation: 20 audio-enabled and 18 audio-disabled window-free CTests pass;
+27/23 compatible example definitions load and 22/20 declaration modules match
+their executables. The three-frame compatibility scene passes on Metal (normal
+and gamma-correct) and gamma-correct OpenGL, checking pixels and capture lifetimes.
+The saved PNG was inspected. No full graphical suite or new hardware checks ran.
+
+The SDK rejects a typed-return record's missing `any = nil` default. The capture
+helper uses `Error("capture pending")`; a small manual repro is recorded for the
+SCUA team. Stream buffer finalization, append position/path identity, Lua overload
+differences, capability boundaries and renderer limits remain explicit contracts,
+not claims of complete Lua compatibility. See SCUA_RUNTIME.md and SCUA_VALIDATION.md.

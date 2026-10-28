@@ -155,13 +155,104 @@ The host leaves backend selection to SDL and your environment.
 Physical controller/sensor coverage depends on attached hardware; see
 [the validation record](SCUA_VALIDATION.md).
 
+## Rooted file streams
+
+`import filesystem` now includes `filesystem.stream` (also available as
+`import file_stream`). `filesystem.open(path, mode)` returns `Ok(Stream)` or
+`Error(reason)`. Modes are `r`, `w` (create/truncate), `a` (append), `create`
+(exclusive new file), and `update` (overwrite an existing file without truncation).
+Only `r` reads; `update` is a write mode, following the SDK contract. Unprefixed
+reads use `res:`; writes use `user:` and require the host's explicit save grant.
+Resource packs are read-only. Traversal and escaping symlinks are refused.
+
+The stream namespace provides `read`, `read_line`, `write`, `seek`, `tell`,
+`get_size`, `is_eof`, `flush`, `sync`, `close`, `abort`, `set_buffer`, `get_buffer`,
+and filename/mode/open-state queries. I/O returns Results. `read` returns bytes,
+defaults to 64 KiB and accepts 0–16 MiB per call. Process larger files in chunks;
+the whole file need not fit in one VM value. `read_line` returns UTF-8 text without
+its terminator, an empty string for a blank line, and nil at EOF. Its SDK limit is
+65,535 bytes per line. Failed text decoding/overlong lines restore the logical
+position so callers can recover with byte reads. `lines(stream)` returns a closure
+whose successive calls return those same Results; it is not a Lua iterator.
+
+Positions are zero-based byte offsets. Seek origins are `start`, `current` and
+`end`; append handles cannot seek. Deflated resource seeks may decode from the
+start. `tell` includes pending writes, and `get_size` preserves position and does
+not flush. Append size uses the rooted path's stat plus buffered bytes; it cannot
+follow the original open file after another writer renames or unlinks that path.
+Concurrent appenders can also change the physical end independently of `tell`.
+
+Buffering defaults to `none`. `full` and `line` buffer up to a configured
+0–1 MiB (default 8 KiB); size zero writes immediately. Line mode flushes through
+the last newline and retains the tail. `flush` writes pending bytes; `sync` also
+requests durable disk synchronization. A failed flush keeps pending bytes for an
+explicit flush retry. A failed multi-chunk `write` may have accepted a prefix;
+retrying the whole write can duplicate it.
+
+Use explicit `close`, or `with_file(path, mode, body)`. The latter catches body
+faults, flushes/closes, and returns a Result containing the body's ordinary value.
+If the body returns a Result, that remains a nested Result. Failed close flushes
+are reported and the handle is released. `abort` deliberately drops pending bytes.
+SDK handles close at partition teardown, but SCUA-side buffered writes have no
+automatic finalizer: forgotten buffered data is lost. Handles are partition-local,
+cannot be messaged to actors or persisted, and should be omitted from logical
+snapshots. Game code should not mutate the facade's internal handle/buffer fields.
+
+`filesystem.append`, `mount`, `get_identity`, `new_file_data` and `read_file_data`
+complete the rooted facade. FileData is a typed `{data: bytes, filename: string}`
+record; pass `.data` to engine byte APIs. Cloning copies metadata while immutable
+bytes may be shared. Identity/import roots/resource layers are configured by the
+host. `filesystem.exists` usually returns bool but preserves an SDK Error if
+permissions or I/O prevent determining existence.
+
+## Runtime screenshots and shader colours
+
+`love.graphics.capture_screenshot(callback = nil)` returns a request ID. After the
+next successful presentation, a callback receives managed ImageData. Without a
+callback, `screenshot_results()` drains `{id, image, error}` records during a later
+update. Requests wait while the window is inactive. Renderer callbacks only retain
+pixels; script callbacks run after presentation on the main script. A request made
+inside a callback belongs to the next frame. Callback faults are reported like
+other main-script callback faults. A renderer failure may deliver nil pixels or
+terminate the frame with its native error.
+
+At most eight captures may be outstanding, including unpolled results. Capture
+dimensions are limited to 16 million pixels / 64 MiB at request time. Close images
+with `love.object.close(image)` when finished, or let ordinary managed collection
+reclaim them. Pending callbacks and unpolled images are released on reload/shutdown.
+Actors and reload staging cannot request captures; actors can exchange copied
+encoded bytes and IDs through their normal messages.
+
+`import screenshots` adds `screenshots.save(path, format = "png")`, using image
+encoding and the granted filesystem's atomic write. It returns a typed record
+with `id`, `done` and `result`; wait until `done` before consuming the Result.
+The initial result is `Error("capture pending")`. This also avoids a current SDK
+edge case: a typed return record with an `any = nil` default is rejected as missing
+that field. No extra filesystem capability is needed for callback/polled captures;
+only the optional save helper imports the filesystem.
+
+`shader_send_color(shader, name, color)` accepts a vec3/vec4, a numeric component
+array, or an array of colours. It checks active vec3/vec4 float uniforms, clamps
+channels to 0–1, and converts RGB to linear only when gamma correction is enabled.
+Alpha remains linear. All supplied colours are validated before uniform mutation;
+arrays are bounded by the declared uniform count and 1,024 colours. Start the host
+with `--gamma-correct` to enable gamma correction before renderer initialization.
+The default remains false, matching the upstream engine's default.
+
+The audit also added texture mip/depth/layer/colour-space/view-format metadata,
+font DPI scale, GPU buffer usages, quad viewport/source dimensions/layer editing,
+checked bulk body state/damping/mass updates, and world-space joint axes alongside
+their local axes. Quad viewports may extend beyond source dimensions for wrapping.
+`has_background_music()` returns false on desktop, as upstream does; macOS system
+vibration remains unavailable, with gamepad rumble a separate capability.
+
 ## Compatibility boundaries
 
 [The method migration audit](SCUA_COMPATIBILITY.md) enumerates all Lua registration
 tables in this checkout and checks native destinations against generated declarations.
-It distinguishes named functions, adapted record families, language replacements,
-host-owned behavior and exclusions. A family destination is a porting guide, not
-proof that every Lua overload/property has identical behavior. There is no Lua
+It distinguishes named functions, explicit record fields with source links,
+language replacements, host-owned behavior and exclusions. Unreviewed methods
+remain gaps rather than inheriting a class-wide coverage label. There is no Lua
 source compatibility or certified method-by-method behavioral parity.
 
 SCUA bytes/packed arrays replace Lua Data and binary pointer access. Files use

@@ -80,6 +80,8 @@ fn body_set_transform(body: any, position: vec2, radians: float) end
 fn body_set_mass_data(body: any, mass: float, center: vec2, inertia: float) end
 -- Restore mass data from collider densities.
 fn body_reset_mass_data(body: any) end
+-- Validate and set position/angle/velocities, damping and custom mass fields as one serial operation.
+fn body_configure(body: any, settings: any) end
 -- Get mass, local center, inertia and custom-mass state.
 fn body_mass_data(body: any) -> any end
 -- Rotate a world vector into local space.

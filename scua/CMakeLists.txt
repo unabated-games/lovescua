@@ -56,7 +56,7 @@ set(scua_thread_support
     ../src/modules/thread/sdl/Thread.cpp)
 add_executable(lovescua
     main.cpp bindings.cpp graphics.cpp platform.cpp objects.cpp math.cpp
-    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp jobs.cpp
+    data.cpp audio.cpp audio_controls.cpp batches.cpp physics.cpp drawables.cpp input.cpp video.cpp rendering.cpp buffers.cpp textures.cpp fonts.cpp particles.cpp image_extra.cpp platform_extra.cpp resources.cpp graphics_extra.cpp jobs.cpp screenshots.cpp
     ${scua_thread_support}
     ../src/modules/video/VideoStream.cpp
     ../src/modules/video/theora/OggDemuxer.cpp
@@ -143,10 +143,26 @@ if(BUILD_TESTING)
     add_test(NAME scua_state_reload COMMAND lovescua --headless --verify --frames 3 --save-dir "${CMAKE_BINARY_DIR}/test-state-saves" "${love_SOURCE_DIR}/examples/state_reload")
     add_test(NAME scua_lifecycle COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_lifecycle.py" "$<TARGET_FILE:lovescua>")
     set_tests_properties(scua_cpu_images scua_state_reload scua_lifecycle PROPERTIES TIMEOUT 30 LABELS "no-window")
+    add_test(NAME scua_streams COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_streams.py" "$<TARGET_FILE:lovescua>")
+    add_test(NAME scua_method_coverage COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_coverage.py" "$<TARGET_FILE:lovescua>")
+    set_tests_properties(scua_streams scua_method_coverage PROPERTIES TIMEOUT 40 LABELS "no-window")
     add_test(NAME scua_jobs COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_jobs.py" "$<TARGET_FILE:lovescua>")
     add_test(NAME scua_actor_demo_serial COMMAND lovescua --headless --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")
     add_test(NAME scua_actor_demo_workers COMMAND lovescua --headless --workers 4 --verify --frames 30 --fixed-dt 0.016666666666666666 "${love_SOURCE_DIR}/examples/actors")
     set_tests_properties(scua_jobs scua_actor_demo_serial scua_actor_demo_workers PROPERTIES TIMEOUT 30 LABELS "no-window")
+    foreach(variant IN ITEMS metal gamma_metal gamma_opengl)
+        set(coverage_options --renderer metal)
+        if(variant MATCHES "^gamma")
+            list(APPEND coverage_options --gamma-correct)
+        endif()
+        if(variant MATCHES "opengl$")
+            set(coverage_options --renderer opengl --gamma-correct)
+        endif()
+        add_test(NAME scua_coverage_${variant} COMMAND lovescua --no-input --verify --frames 3
+            --fixed-dt 0.016666666666666666 ${coverage_options}
+            --save-dir "${CMAKE_BINARY_DIR}/coverage-${variant}-saves" "${love_SOURCE_DIR}/examples/compatibility")
+        set_tests_properties(scua_coverage_${variant} PROPERTIES TIMEOUT 20 ENVIRONMENT "ALSOFT_DRIVERS=null" LABELS "graphical")
+    endforeach()
     add_test(NAME scua_video_controls COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_video.py" "$<TARGET_FILE:lovescua>" --controls)
     set_tests_properties(scua_video_controls PROPERTIES TIMEOUT 15 LABELS "no-window")

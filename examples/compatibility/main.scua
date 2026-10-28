@@ -1,0 +1,102 @@
+-- End-to-end coverage for gaps found by the method audit.
+import love
+import filesystem
+import bytes
+import screenshots
+let shader=nil
+let captured=0
+let callbacks=0
+let frame=0
+let polled=[]
+let saved=nil
+fn near(a,b) return abs(a-b)<0.02 end
+fn check_image(image)
+  assert(image!=nil,"screenshot must deliver ImageData")
+  let size=love.graphics.pixel_dimensions()
+  let info=love.image.info(image)
+  assert(info.width==size.x and info.height==size.y)
+  let left=love.image.get_pixel(image,floor(size.x/4),floor(size.y/4))
+  let right=love.image.get_pixel(image,floor(size.x*3/4),floor(size.y/4))
+  assert(near(left.x,0) and near(left.y,0.5) and near(left.z,1),"left screenshot color")
+  assert(near(right.x,0.25) and near(right.y,1) and near(right.z,0),"right screenshot color")
+  captured=captured+1
+  return image
+end
+fn fails(body)
+  match pcall(body) Error(_) -> nil Ok(_) -> assert(false,"invalid operation must fail") end
+end
+fn load()
+  love.window.set_mode(256,192)
+  love.window.set_title("SCUA compatibility coverage")
+  shader=love.graphics.new_shader("extern vec4 colors[2]; extern vec4 unusedColor; vec4 effect(vec4 c, Image t, vec2 uv, vec2 px) { return px.x < love_ScreenSize.x * 0.5 ? colors[0] : colors[1]; }")
+  love.graphics.shader_send_color(shader,"colors",[vec4(-1,0.5,2,1),vec4(0.25,1,-3,1)])
+  fails(fn() love.graphics.shader_send_color(shader,"colors",[vec4(1,1,1,1),vec3(1,1,1)]) end)
+  fails(fn() love.graphics.shader_send_color(shader,"missing",vec4(1,1,1,1)) end)
+  fails(fn() love.graphics.shader_send_color(shader,"unusedColor",vec4(1,1,1,1)) end)
+  -- Resource dimensions must not accidentally resolve to WINDOW dimensions.
+  let texture=love.graphics.new_texture({type="2d",width=16,height=8,format="rgba8",linear=true,mipmaps="manual"})
+  let info=love.graphics.texture_info(texture,1)
+  assert(info.width==8 and info.height==4 and info.pixel_width==8 and info.pixel_height==4)
+  assert(info.depth==1 and info.layer_count==1)
+  -- Upstream isFormatLinear reports false whenever gamma correction is disabled.
+  assert(info.linear==love.graphics.pipeline_state().gamma_correct)
+  assert(love.graphics.texture_info(texture).width!=love.graphics.dimensions().x)
+  fails(fn() love.graphics.texture_info(texture,99) end)
+  let volume=love.graphics.new_texture({type="volume",width=16,height=8,layers=4,format="rgba8",mipmaps="manual"})
+  assert(love.graphics.texture_info(volume).depth==4)
+  assert(love.graphics.texture_info(volume,1).depth==2)
+  let array=love.graphics.new_texture({type="array",width=8,height=8,layers=2,format="rgba8"})
+  let quad=love.graphics.new_quad(array,vec2(2,3),vec2(12,13))
+  love.graphics.quad_set_layer(quad,1)
+  let q=love.graphics.quad_info(quad)
+  assert(q.position==vec2(2,3) and q.size==vec2(12,13) and q.texture_dimensions==vec2(8,8) and q.layer==1)
+  love.graphics.quad_set_viewport(quad,vec2(-2,-3),vec2(16,16))
+  assert(love.graphics.quad_info(quad).position==vec2(-2,-3))
+  fails(fn() love.graphics.quad_set_layer(quad,2) end)
+  let buffer=love.graphics.new_buffer([{name="VertexPosition",format="floatvec2"}],4,["vertex"])
+  let uses=love.graphics.buffer_info(buffer).usages
+  assert(uses.len()==1 and uses[0]=="vertex")
+  let raster=love.font.new_rasterizer(18,nil,{dpi_scale=2})
+  let font=love.graphics.new_font_from_rasterizer(raster)
+  assert(love.graphics.font_metrics(font).dpi_scale==2)
+end
+fn update(dt)
+  frame=frame+1
+  for result in love.graphics.screenshot_results() do
+    assert(result.error==nil and result.id>0)
+    polled.push(result.id)
+    check_image(result.image)
+    -- Callback/polled images can use the ordinary image/FS capabilities.
+    match filesystem.write("capture.png",love.image.encode(result.image,"png"))
+      Ok(_) -> nil
+      Error(reason) -> assert(false,tostring(reason))
+    end
+    love.object.close(result.image)
+  end
+  if frame==1 then
+    saved=screenshots.save("helper.png")
+    love.graphics.capture_screenshot()
+    love.graphics.capture_screenshot(fn(image)
+      check_image(image)
+      love.object.close(image)
+      callbacks=callbacks+1
+      -- A request made by a screenshot callback belongs to the NEXT frame.
+      love.graphics.capture_screenshot()
+    end)
+  end
+end
+fn draw()
+  love.graphics.set_shader(shader)
+  love.graphics.set_color(vec4(1,1,1,1))
+  love.graphics.rectangle("fill",vec2(0,0),love.graphics.dimensions())
+  love.graphics.set_shader(nil)
+  if frame==3 then love.graphics.capture_screenshot() end
+end
+fn verify()
+  assert(frame==3 and callbacks==1 and captured==3 and polled.len()==2)
+  assert(polled[0]!=polled[1] and saved.done)
+  match saved.result Ok(_) -> nil Error(reason) -> assert(false,tostring(reason)) end
+  -- Teardown must release both the unpolled final image and this pending closure.
+  love.graphics.capture_screenshot(fn(_) assert(false,"capture after final presentation must be cancelled") end)
+  print("PASS: color uniforms/clamping/gamma, atomic validation, runtime callbacks/polling, screenshot save, texture mip/depth metadata, quad viewport/layers, buffer usages and font DPI")
+end

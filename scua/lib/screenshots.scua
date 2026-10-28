@@ -1,0 +1,20 @@
+-- Optional filesystem-backed screenshot helper; importing graphics alone needs no save grant.
+import love_graphics as graphics
+import love_image as image
+import love_object as object
+import filesystem
+
+record Capture { id: int = 0, done: bool = false, result: any = Error("capture pending") }
+fn save(path: string, format: string = "png") -> Capture
+  let request: Capture={}
+  request.id=graphics.capture_screenshot(fn(pixels)
+    match pcall(fn() return image.encode(pixels,format) end)
+      Error(reason) -> request.result=Error(reason)
+      Ok(encoded) -> request.result=filesystem.write_atomic(path,encoded)
+    end
+    object.close(pixels)
+    request.done=true
+  end)
+  return request
+end
+return {save=save}

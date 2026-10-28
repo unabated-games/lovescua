@@ -1,0 +1,268 @@
+-- Stateful, bounded-memory files over SCUA's rooted file capabilities.
+-- Handles are local to this partition, cannot be persisted or sent to actors.
+import fs
+import bytes
+import str
+
+record Stream {
+  handle: any, path: string, mode: string,
+  opened: bool = true, position: int = 0, eof: bool = false,
+  buffer_mode: string = "none", buffer_size: int = 8192,
+  pending: bytes, ahead: bytes,
+}
+fn empty() -> bytes return bytes.from_string("") end
+fn require_open(file: Stream)
+  assert(file.opened,"file is closed")
+end
+fn open(path: string, mode: string = "r")
+  assert(mode=="r" or mode=="w" or mode=="a" or mode=="update" or mode=="create","invalid file mode")
+  let target=path
+  if not str.starts_with(target,"res:") and not str.starts_with(target,"user:") then
+    target=(if mode=="r" then "res:" else "user:" end)..target
+  end
+  let native_mode=if mode=="r" then "read" elseif mode=="w" then "write" elseif mode=="a" then "append" else mode end
+  match fs.open(target,{mode=native_mode})
+    Error(reason) -> return Error(reason)
+    Ok(handle) -> do
+      let position=0
+      if mode=="a" then
+        match fs.stat(target)
+          Ok(info) -> position=info.size
+          Error(reason) -> do fs.close(handle) return Error(reason) end
+        end
+      end
+      let file: Stream={handle=handle,path=target,mode=mode,position=position,pending=empty(),ahead=empty()}
+      return Ok(file)
+    end
+  end
+end
+fn flush(file: Stream)
+  require_open(file)
+  if file.pending.len()==0 then return Ok(nil) end
+  match fs.write_chunk(file.handle,file.pending)
+    Error(reason) -> return Error(reason)
+    Ok(_) -> do file.pending=empty() return Ok(nil) end
+  end
+end
+fn sync(file: Stream)
+  require_open(file)
+  assert(file.mode!="r","read-only file has nothing to sync")
+  match flush(file)
+    Error(reason) -> return Error(reason)
+    Ok(_) -> return fs.sync(file.handle)
+  end
+end
+fn close(file: Stream)
+  if not file.opened then return Ok(nil) end
+  match flush(file)
+    Error(reason) -> return Error(reason)
+    Ok(_) -> do
+      match fs.close(file.handle)
+        Error(reason) -> return Error(reason)
+        Ok(_) -> do file.opened=false return Ok(nil) end
+      end
+    end
+  end
+end
+fn read(file: Stream, count: int = 65536)
+  require_open(file)
+  assert(file.mode=="r","file is not open for reading")
+  assert(count>=0 and count<=16777216,"read size must be 0..16 MiB; use chunks for larger files")
+  if count==0 then return Ok(empty()) end
+  let prefix=empty()
+  if file.ahead.len()>0 then
+    prefix=bytes.slice(file.ahead,0,count)
+    file.ahead=bytes.slice(file.ahead,prefix.len(),file.ahead.len())
+    file.position=file.position+prefix.len()
+    if prefix.len()==count then return Ok(prefix) end
+  end
+  let needed=count-prefix.len()
+  let amount=if file.buffer_mode=="none" then needed else max(needed,file.buffer_size) end
+  match fs.read_chunk(file.handle,amount)
+    Error(reason) -> do
+      file.position=file.position-prefix.len()
+      file.ahead=bytes.concat(prefix,file.ahead)
+      return Error(reason)
+    end
+    Ok(data) -> do
+      let output=bytes.slice(data,0,needed)
+      file.ahead=bytes.slice(data,output.len(),data.len())
+      file.position=file.position+output.len()
+      file.eof=data.len()==0
+      return Ok(bytes.concat(prefix,output))
+    end
+  end
+end
+fn read_line(file: Stream)
+  require_open(file)
+  assert(file.mode=="r","file is not open for reading")
+  if file.ahead.len()>0 then
+    match fs.seek(file.handle,file.position)
+      Error(reason) -> return Error(reason)
+      Ok(_) -> file.ahead=empty()
+    end
+  end
+  match fs.read_line(file.handle)
+    Error(reason) -> do
+      -- A rejected UTF-8/oversized line may have advanced the native stream.
+      -- Restore our logical position so the caller can recover with byte reads.
+      match fs.seek(file.handle,file.position)
+        Error(recovery) -> return Error(recovery)
+        Ok(_) -> return Error(reason)
+      end
+    end
+    Ok(line) -> do
+      match fs.seek(file.handle,0,{from="current"})
+        Error(reason) -> return Error(reason)
+        Ok(position) -> file.position=position
+      end
+      file.eof=line==nil
+      return Ok(line)
+    end
+  end
+end
+fn write(file: Stream, value)
+  require_open(file)
+  assert(file.mode!="r","file is not open for writing")
+  let data=if type(value)=="string" then bytes.from_string(value) else value end
+  assert(type(data)=="bytes","write expects string or bytes")
+  let total=data.len()
+  let offset=0
+  while offset<total do
+    let capacity=if file.buffer_size==0 then 8192 else file.buffer_size end
+    let count=min(total-offset,capacity-file.pending.len())
+    let piece=bytes.slice(data,offset,offset+count)
+    file.pending=bytes.concat(file.pending,piece)
+    -- Once buffered, a failed flush retains the pending bytes for an explicit retry.
+    file.position=file.position+count
+    offset=offset+count
+    if file.buffer_mode=="line" then
+      let stop=0
+      let newline=bytes.find(file.pending,"\n")
+      while newline!=nil do
+        stop=newline+1
+        newline=bytes.find(file.pending,"\n",stop)
+      end
+      if stop>0 then
+        match fs.write_chunk(file.handle,bytes.slice(file.pending,0,stop))
+          Error(reason) -> return Error(reason)
+          Ok(_) -> file.pending=bytes.slice(file.pending,stop,file.pending.len())
+        end
+      end
+    end
+    if file.buffer_mode=="none" or file.buffer_size==0 or file.pending.len()>=file.buffer_size then
+      match flush(file)
+        Error(reason) -> return Error(reason)
+        Ok(_) -> nil
+      end
+    end
+  end
+  return Ok(total)
+end
+fn tell(file: Stream) -> int require_open(file) return file.position end
+fn seek(file: Stream, offset: int, from: string = "start")
+  require_open(file)
+  assert(file.mode!="a","append files always write at the end")
+  assert(from=="start" or from=="current" or from=="end","invalid seek origin")
+  match flush(file)
+    Error(reason) -> return Error(reason)
+    Ok(_) -> do
+      let actual_offset=if from=="current" then file.position+offset else offset end
+      let actual_from=if from=="current" then "start" else from end
+      match fs.seek(file.handle,actual_offset,{from=actual_from})
+        Error(reason) -> return Error(reason)
+        Ok(position) -> do file.position=position file.eof=false file.ahead=empty() return Ok(position) end
+      end
+    end
+  end
+end
+fn get_size(file: Stream)
+  require_open(file)
+  if file.mode=="a" then
+    match fs.stat(file.path)
+      Error(reason) -> return Error(reason)
+      Ok(info) -> return Ok(info.size+file.pending.len())
+    end
+  end
+  match fs.seek(file.handle,0,{from="end"})
+    Error(reason) -> return Error(reason)
+    Ok(size) -> do
+      match fs.seek(file.handle,file.position-file.pending.len())
+        Error(reason) -> return Error(reason)
+        Ok(_) -> do
+          file.ahead=empty()
+          return Ok(if file.pending.len()>0 then max(size,file.position) else size end)
+        end
+      end
+    end
+  end
+end
+fn set_buffer(file: Stream, mode: string, size: int = 8192)
+  require_open(file)
+  assert(mode=="none" or mode=="line" or mode=="full","invalid buffer mode")
+  assert(size>=0 and size<=1048576,"buffer size must be 0..1 MiB")
+  if file.ahead.len()>0 then
+    match fs.seek(file.handle,file.position)
+      Error(reason) -> return Error(reason)
+      Ok(_) -> file.ahead=empty()
+    end
+  end
+  match flush(file)
+    Error(reason) -> return Error(reason)
+    Ok(_) -> do file.buffer_mode=mode file.buffer_size=size return Ok(nil) end
+  end
+end
+fn abort(file: Stream)
+  if not file.opened then return Ok(nil) end
+  let result=fs.close(file.handle)
+  file.opened=false
+  file.pending=empty()
+  file.ahead=empty()
+  return result
+end
+fn with_file(path: string, mode: string, body)
+  match open(path,mode)
+    Error(reason) -> return Error(reason)
+    Ok(file) -> do
+      let result=pcall(fn() return body(file) end)
+      match close(file)
+        Error(reason) -> do
+          -- Report unsaved data and still release the handle if flushing failed.
+          abort(file)
+          return Error(reason)
+        end
+        Ok(_) -> return result
+      end
+    end
+  end
+end
+fn lines(file: Stream)
+  require_open(file)
+  assert(file.mode=="r","file is not open for reading")
+  return fn() return read_line(file) end
+end
+fn get_buffer(file: Stream) return {mode=file.buffer_mode,size=if file.buffer_mode=="none" then 0 else file.buffer_size end} end
+fn is_open(file: Stream) -> bool return file.opened end
+fn is_eof(file: Stream) -> bool
+  require_open(file)
+  if file.mode!="r" then return false end
+  if file.ahead.len()>0 then return false end
+  -- A one-byte lookahead makes EOF correct immediately after the last byte.
+  match fs.read_chunk(file.handle,1)
+    Error(reason) -> assert(false,tostring(reason))
+    Ok(data) -> do file.ahead=data file.eof=data.len()==0 end
+  end
+  return file.eof
+end
+fn get_mode(file: Stream) -> string return if file.opened then file.mode else "closed" end end
+fn get_filename(file: Stream) -> string return file.path end
+fn get_extension(file: Stream) -> string
+  let name=str.split(file.path,"/")
+  let pieces=str.split(name[name.len()-1],".")
+  return if pieces.len()>1 then pieces[pieces.len()-1] else "" end
+end
+return {
+  open=open,with_file=with_file,close=close,abort=abort,lines=lines,read=read,read_line=read_line,write=write,flush=flush,sync=sync,
+  seek=seek,tell=tell,get_size=get_size,set_buffer=set_buffer,get_buffer=get_buffer,
+  is_open=is_open,is_eof=is_eof,get_mode=get_mode,get_filename=get_filename,get_extension=get_extension,
+}

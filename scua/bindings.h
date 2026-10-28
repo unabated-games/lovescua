@@ -76,6 +76,7 @@ struct QuadResource
     love::graphics::Quad *quad;
 };
 struct DialogInbox;
+struct ScreenshotInbox;
 struct Host
 {
     love::window::sdl::Window *window = nullptr;
@@ -85,6 +86,7 @@ struct Host
     love::sensor::Sensor *sensors = nullptr;
     love::mouse::Mouse *mouse = nullptr;
     std::shared_ptr<Jobs> jobs;
+    std::shared_ptr<ScreenshotInbox> screenshots;
     bool quitting = false;
     bool drawing = false;
     bool checking = false;
@@ -108,6 +110,10 @@ struct Host
 };
 
 void registerBindings(scua_partition *partition, Host &host);
+void registerScreenshots(scua_partition *, Host &);
+void submitScreenshots(Host &);
+void deliverScreenshots(Host &);
+void cancelScreenshots(Host &) noexcept;
 void registerGraphicsExtras(scua_partition *, Host &);
 void registerResources(scua_partition *, Host &);
 void registerImageExtras(scua_partition *, Host &);

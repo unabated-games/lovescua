@@ -44,6 +44,7 @@ void jointFields(Joint *j, Record &r, float inverseDt)
         physicsVec(r, "local_anchor_a", v->GetLocalAnchorA(), m);
         physicsVec(r, "local_anchor_b", v->GetLocalAnchorB(), m);
         physicsVec(r, "local_axis", v->GetLocalAxisA(), 1);
+        physicsVec(r, "axis", j->a->body->GetWorldVector(v->GetLocalAxisA()), 1);
         r.num("reference_angle", v->GetReferenceAngle() * (1));
         r.num("translation", v->GetJointTranslation() * (m));
         r.num("speed", v->GetJointSpeed() * (m));
@@ -62,6 +63,7 @@ void jointFields(Joint *j, Record &r, float inverseDt)
         physicsVec(r, "local_anchor_a", v->GetLocalAnchorA(), m);
         physicsVec(r, "local_anchor_b", v->GetLocalAnchorB(), m);
         physicsVec(r, "local_axis", v->GetLocalAxisA(), 1);
+        physicsVec(r, "axis", j->a->body->GetWorldVector(v->GetLocalAxisA()), 1);
         r.num("translation", v->GetJointTranslation() * (m));
         r.num("linear_speed", v->GetJointLinearSpeed() * (m));
         r.num("angle", v->GetJointAngle() * (1));

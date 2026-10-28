@@ -20,5 +20,7 @@ fn set_clipboard_text(text: string) end
 fn open_url(url: string) -> bool end
 -- Read preferred locale names.
 fn preferred_locales() -> any end
+-- Return false, matching upstream desktop behavior; background-music detection is mobile-only.
+fn has_background_music() -> bool end
 -- Report unavailable system vibration on the macOS host; gamepad rumble is separate.
 fn vibrate(seconds: float) -> bool end

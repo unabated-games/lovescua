@@ -1,0 +1,19 @@
+-- Named immutable bytes replace Lua FileData's mutable native object.
+import bytes
+import str
+record FileData { data: bytes, filename: string }
+fn new(data: bytes, filename: string) -> FileData
+  return {data=data,filename=filename}
+end
+fn clone(value: FileData) -> FileData
+  -- Bytes are immutable: sharing their storage is safe; the metadata record is new.
+  return {data=value.data,filename=value.filename}
+end
+fn get_filename(value: FileData) -> string return value.filename end
+fn get_extension(value: FileData) -> string
+  let names=str.split(value.filename,"/")
+  let parts=str.split(names[names.len()-1],".")
+  return if parts.len()>1 then parts[parts.len()-1] else "" end
+end
+fn get_size(value: FileData) -> int return value.data.len() end
+return {new=new,clone=clone,get_filename=get_filename,get_extension=get_extension,get_size=get_size}

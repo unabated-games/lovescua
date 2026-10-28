@@ -1,7 +1,7 @@
 """Generate a method-level migration index from this fork's actual Lua wrappers.
 
 A mapping is a porting destination, not a claim of matching overloads or semantics.
-Unmapped methods remain visible. All native destinations must exist in declarations.
+Unmapped methods remain visible. Native destinations must exist in declarations; SCUA facade exports are resolved from their source.
 """
 import argparse
 from collections import Counter
@@ -11,70 +11,51 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 NATIVE = {f'{p.stem}.{name}' for p in (ROOT/'scua/decls').glob('*.scua')
           for name in re.findall(r'^fn (\w+)\(', p.read_text(), re.M)}
+NATIVE_PARAMS = {f'{p.stem}.{name}':args for p in (ROOT/'scua/decls').glob('*.scua')
+                 for name,args in re.findall(r'^fn (\w+)\(([^)]*)\)',p.read_text(),re.M)}
+OBJECT_PARAMS = {
+    'Texture':{'texture','image'}, 'Shader':{'shader'}, 'ParticleSystem':{'particles'},
+    'Body':{'body'}, 'World':{'world'}, 'Joint':{'joint'}, 'ImageData':{'data','image'},
+    'Source':{'source'}, 'SoundData':{'data'}, 'VideoStream':{'video'},
+    'RandomGenerator':{'generator'}, 'BezierCurve':{'curve'}, 'Transform':{'transform'},
+}
+MODULE_GROUPS = {
+    'audio.Audio', 'data.DataModule', 'event.Event', 'font.Font', 'graphics.Graphics',
+    'image.Image', 'joystick.JoystickModule', 'keyboard.Keyboard', 'math.Math',
+    'mouse.Mouse', 'physics.Physics', 'sensor.Sensor', 'sound.Sound', 'system.System',
+    'timer.Timer', 'touch.Touch', 'video.Video', 'window.Window',
+}
 OVERRIDES = {}
-FAMILIES = {}
-
-
 def map_methods(group, target, methods, note='', status='Adapted'):
     for method in methods.split():
         OVERRIDES[group, method] = (status, target, note)
 
 
-def family(group, target, note):
-    FAMILIES[group] = ('Family', target, note)
-
-
-# Record APIs deliberately consolidate Lua getter/setter families. Family means
-# consult this API's fields; it does NOT promise an exact method equivalent.
-family('graphics.ParticleSystem', 'love_graphics.particles_state love_graphics.particles_configure', 'Particle property records; settings names/defaults differ.')
-family('physics.Body', 'love_physics.body_info love_physics.body_mass_data', 'Body snapshot; setters use separate checked operations. No implicit per-object script data.')
-family('physics.Contact', 'love_physics.contact_info love_physics.contact_set love_physics.contact_reset', 'Persistent contact ID and snapshot/edit API; invalidation is explicit.')
-family('physics.Shape', 'love_physics.collider_info love_physics.collider_shape love_physics.collider_configure', 'Shape and fixture are represented by an attached collider; not a standalone Lua Shape.')
-for cls in 'CircleShape PolygonShape EdgeShape ChainShape'.split():
-    family('physics.'+cls, 'love_physics.collider_shape love_physics.collider_configure', 'Attached collider shape fields; child edges use collider_child_edge.')
-for cls in 'Distance Friction Gear Motor Mouse Prismatic Pulley Revolute Rope Weld Wheel'.split():
-    family('physics.'+cls+'Joint', 'love_physics.joint_state love_physics.joint_configure', 'Joint-family fields; spring/limit/motor names and units use SCUA records.')
-family('graphics.Texture', 'love_graphics.texture_info love_graphics.texture_sampler love_graphics.texture_set_sampler', 'Texture metadata and sampler record; supported formats/features depend on renderer.')
-family('graphics.Buffer', 'love_graphics.buffer_info', 'Buffer metadata record; storage data uses typed arrays or bytes.')
-family('graphics.Mesh', 'love_graphics.mesh_info', 'Mesh metadata record; custom attributes use GPU buffers, raw vertex reads return bytes.')
-family('graphics.SpriteBatch', 'love_graphics.batch_info', 'Batch metadata record; array layers and zero-based ranges are explicit.')
-family('graphics.Font', 'love_graphics.font_metrics', 'Font metrics record; see separate text/filter operations.')
-family('font.Rasterizer', 'love_font.rasterizer_info', 'Rasterizer metadata record.')
-family('font.GlyphData', 'love_font.glyph_info', 'Glyph metadata record; pixel bytes are copied.')
-family('image.ImageData', 'love_image.info', 'CPU image metadata record; raw-only formats reject pixel access.')
-family('image.CompressedImageData', 'love_image.compressed_info', 'Compressed mip/layer metadata record.')
-family('audio.Source', 'love_audio.source_info', 'Source snapshot; playback and routing use separate operations.')
-family('audio.RecordingDevice', 'love_audio.recording_info', 'Recording metadata; capture requires an explicit start.')
-family('sound.SoundData', 'love_sound.info', 'PCM metadata record, channel numbers remain one-based.')
-family('sound.Decoder', 'love_sound.decoder_info', 'Decoder metadata; encoded input bytes replace Lua File arguments.')
-family('joystick.Joystick', 'love_joystick.info', 'Connected device snapshot; IDs/indices differ from Lua object methods.')
-family('mouse.Cursor', 'love_mouse.cursor_info', 'Managed cursor metadata.')
-family('touch.Touch', 'love_touch.touches', 'Touch records include position, pressure, device type and mouse origin.')
 
 # Explicit exceptions and host/language replacements.
-for cls in 'Data ByteData DataView CompressedData'.split():
-    family('data.'+cls, '', 'SCUA bytes, packed arrays and slices replace Lua Data objects; no Lua metatable or binary-format-string compatibility.')
 for method in 'getPointer getFFIPointer performAtomic'.split():
     map_methods('data.Data', '', method, 'Raw native pointers and Lua atomic callbacks are not exposed.', 'Excluded')
 map_methods('data.DataModule', '', 'newDataView newByteData pack unpack getPackedSize', 'Use SCUA bytes/packed arrays. Lua pack format strings are not implemented.', 'Replacement')
-for cls in 'File FileData Filesystem'.split():
-    family('filesystem.'+cls, '', 'SCUA filesystem facade and fs capabilities use res:/user: paths, copied bytes and explicit grants; Lua File objects are not implemented.')
 map_methods('filesystem.Filesystem', '', 'init setFused isFused _setAndroidSaveExternal setSource getSource getCRequirePath setCRequirePath', 'Lua bootstrap, fused packaging or platform/distribution behavior; outside this batch.', 'Excluded')
 map_methods('filesystem.Filesystem', '', 'openNativeFile mountFullPath mountCommonPath unmountFullPath unmountCommonPath getFullCommonPath getWorkingDirectory getUserDirectory getAppdataDirectory getRealDirectory canonicalizeRealPath setSymlinksEnabled areSymlinksEnabled', 'Ambient host-path access is intentionally replaced by grants and selected-file dialog capabilities.', 'Excluded')
-for cls in 'Channel LuaThread ThreadModule'.split():
-    FAMILIES['thread.'+cls]=('Replacement','', 'SCUA 0.38 actors/tell/ask/spawn/wait replace Lua threads/channels; host budgets and optional workers are implemented. Lua shared channels/atomic callbacks are not reproduced.')
+for cls, methods in {
+    'Channel':'push supply pop demand peek getCount hasRead clear performAtomic',
+    'LuaThread':'start wait getError isRunning',
+    'ThreadModule':'newThread newChannel getChannel',
+}.items():
+    map_methods('thread.'+cls,'',methods,
+                'SCUA actors/tell/ask/spawn/wait replace Lua threads/channels. Host budgets/workers are implemented; shared mutable channels/atomic callbacks are not reproduced.', 'Replacement')
 map_methods('event.Event', 'love_event.post', 'push', 'Queued main-thread custom events; not a thread-safe actor inbox.')
 map_methods('event.Event', 'love_event.reload', 'restart', 'Reloads SCUA definitions/resources with optional logical snapshot; not process restart.')
 map_methods('event.Event', '', 'pump poll_i wait clear setModalDrawCallback _setDefaultModalDrawCallback', 'Host owns SDL pumping, frame delivery and draw callbacks.', 'Host-owned')
 map_methods('timer.Timer', '', 'step', 'Host advances frame timing and passes dt to update.', 'Host-owned')
-map_methods('graphics.Graphics', '', 'present captureScreenshot', 'Host presents; screenshots use --screenshot FILE --frames N.', 'Host-owned')
+map_methods('graphics.Graphics', '', 'present', 'Host presents after draw and delivers screenshot results afterward.', 'Host-owned')
 map_methods('graphics.Graphics', '', 'getQuadIndexBuffer', 'Internal shared GPU index buffer is not exposed.', 'Excluded')
 map_methods('window.Window', '', 'getPointer', 'Native OS pointers are not exposed.', 'Excluded')
-map_methods('system.System', '', 'hasBackgroundMusic', 'No background-music probe in this macOS host.', 'Excluded')
+map_methods('system.System', 'love_system.has_background_music', 'hasBackgroundMusic', 'Matches upstream desktop false; mobile background-music probes remain platform work.')
 for cls in 'Body Shape Joint'.split():
     map_methods('physics.'+cls, '', 'setUserData getUserData', 'Store typed game records in SCUA keyed by stable world/body/collider/joint IDs.', 'Replacement')
 map_methods('physics.Physics', '', 'getMeter setMeter', 'Meter scale is selected per world in new_world; no process-global mutable meter.', 'Replacement')
-map_methods('physics.Physics', '', 'computeLinearStiffness computeLinearFrequency computeAngularStiffness computeAngularFrequency', 'Use Box2D spring formula in game code; standalone conversion helpers are not exposed.', 'Gap')
 
 # Module functions and renamed methods. Every destination is validated below.
 def aliases(group, module, pairs):
@@ -99,12 +80,9 @@ aliases('graphics.Mesh','graphics', {'setVertex':'mesh_set_vertex','getVertex':'
 map_methods('graphics.Mesh','love_graphics.buffer_set_data love_graphics.mesh_vertex_buffer','setVertices setVertexAttribute','Edit/upload the vertex buffer; no Lua variadic per-attribute overloads.')
 map_methods('graphics.Mesh','love_graphics.mesh_vertex_bytes love_graphics.mesh_info','getVertexAttribute','Read bytes using format/offset metadata; no automatic unpacking.')
 aliases('graphics.SpriteBatch','graphics',{'add':'batch_add','set':'batch_set','addLayer':'batch_layer','setLayer':'batch_layer','clear':'batch_clear','flush':'batch_flush','setTexture':'batch_set_texture','getTexture':'batch_texture','setColor':'batch_set_color','setDrawRange':'batch_set_range'})
-map_methods('graphics.SpriteBatch','','attachAttribute','Custom per-instance data uses mesh/buffer instancing; SpriteBatch attribute attachment is not exposed.','Gap')
-aliases('graphics.Quad','graphics',{'setViewport':'quad_set_viewport','getViewport':'quad_dimensions'})
-map_methods('graphics.Quad','love_graphics.draw_layer','setLayer getLayer','Array layers are explicit draw arguments; quads retain their source texture.','Replacement')
-map_methods('graphics.Quad','love_graphics.texture_info','getTextureDimensions','Keep the source texture alongside the quad.')
+aliases('graphics.Quad','graphics',{'setViewport':'quad_set_viewport'})
 aliases('graphics.TextBatch','graphics',{'set':'text_set','setf':'text_set_wrapped','add':'text_add','addf':'text_add_wrapped','clear':'text_clear','setFont':'text_set_font','getFont':'text_font','getWidth':'text_dimensions','getHeight':'text_dimensions','getDimensions':'text_dimensions'})
-aliases('graphics.Shader','graphics',{'getWarnings':'shader_warnings','send':'shader_send','sendColor':'shader_send','hasUniform':'shader_has_uniform','hasStage':'shader_has_stage','getLocalThreadgroupSize':'shader_threadgroup_size','getBufferFormat':'shader_buffer_format'})
+aliases('graphics.Shader','graphics',{'getWarnings':'shader_warnings','send':'shader_send','hasUniform':'shader_has_uniform','hasStage':'shader_has_stage','getLocalThreadgroupSize':'shader_threadgroup_size','getBufferFormat':'shader_buffer_format'})
 aliases('graphics.GraphicsReadback','graphics',{'isComplete':'readback_status','hasError':'readback_status','wait':'readback_wait','update':'readback_status','getBufferData':'readback_bytes','getImageData':'readback_image'})
 aliases('graphics.Font','graphics',{'getWidth':'font_width','getWrap':'font_wrap_info','setLineHeight':'font_set_line_height','setFilter':'font_set_filter','getFilter':'font_filter','hasGlyphs':'font_has_glyphs','getKerning':'font_kerning','setFallbacks':'font_set_fallbacks'})
 aliases('graphics.ParticleSystem','graphics',{'clone':'particles_clone','setTexture':'particles_set_texture','getTexture':'particles_texture','setQuads':'particles_set_quads','getQuads':'particles_quads'})
@@ -112,7 +90,7 @@ aliases('font.Font','font',{'newTrueTypeRasterizer':'new_rasterizer','newGlyphDa
 aliases('font.Rasterizer','font',{'getGlyphData':'new_glyph','hasGlyphs':'rasterizer_has_glyphs'})
 aliases('font.GlyphData','font',{'clone':'glyph_clone'})
 aliases('image.Image','image',{'newImageData':'new_data','newCompressedData':'decode_compressed','newCubeFaces':'cube_faces'})
-aliases('image.ImageData','image',{'mapPixel':'map_pixels'})
+aliases('image.ImageData','image',{'mapPixel':'map_pixels','paste':'paste'})
 aliases('image.CompressedImageData','image',{'clone':'compressed_clone','setLinear':'compressed_set_linear'})
 aliases('joystick.JoystickModule','joystick',{'getJoysticks':'get','getJoystickCount':'count','hasBackgroundEvents':'background_events','loadGamepadMappings':'load_mappings','saveGamepadMappings':'save_mappings'})
 aliases('joystick.Joystick','joystick',{'getAxis':'axis','getHat':'hat','getGamepadAxis':'gamepad_axis','isGamepadDown':'gamepad_down','getGamepadMapping':'mapping','isVibrationSupported':'vibration_supported','setVibration':'vibrate','isSensorEnabled':'sensor_enabled','getSensorData':'sensor_data'})
@@ -163,6 +141,7 @@ map_methods('physics.World','love_physics.world_set_callbacks_enabled','setCallb
 map_methods('physics.World','','getCallbacks','Game owns the named callback functions; host does not return a callback tuple.','Replacement')
 map_methods('physics.World','love_physics.world_configure','setContactFilter setSleepingAllowed','Configure filter callback name / sleeping policy.')
 map_methods('physics.World','love_physics.world_settings','getContactFilter isSleepingAllowed','World settings snapshot.')
+map_methods('physics.Body','love_physics.body_is_touching','isTouching','Checks touching contacts between body_a and body_b in the same world.')
 aliases('physics.World','physics',{'translateOrigin':'world_shift_origin','getBodyCount':'world_stats','getJointCount':'world_stats','getContactCount':'world_stats','queryShapesInArea':'world_query_each','getShapesInArea':'world_query','queryBoundingBox':'world_query','rayCast':'world_raycast_each','rayCastAny':'world_raycast','rayCastClosest':'world_raycast'})
 
 map_methods('graphics.SpriteBatch','love_graphics.batch_attach_attribute','attachAttribute','Attach a buffer member; obtain a mesh-owned buffer with mesh_vertex_buffer.')
@@ -172,6 +151,32 @@ map_methods('graphics.Graphics','love_graphics.new_font love_graphics.set_font',
 map_methods('font.Font','love_font.new_glyph love_font.new_glyph_codepoint','newGlyphData','Glyph creation takes an existing rasterizer and text/codepoint.')
 map_methods('image.Image','love_image.new_data love_image.decode','newImageData','Allocate from dimensions/raw data or decode copied encoded bytes explicitly.')
 map_methods('graphics.Video','love_video.dimensions','getStream','SCUA uses a single managed video object; there is no separate exposed stream handle.','Replacement')
+
+# Source-reviewed per-method fields replace class-wide family defaults.
+from method_migrations import install
+install(map_methods, ROOT)
+map_methods('graphics.Shader','love_graphics.shader_send_color','sendColor',
+            'Clamp color channels; convert RGB to linear when gamma correction is enabled. Accepts one color or an array.')
+map_methods('graphics.Graphics','love_graphics.capture_screenshot love_graphics.screenshot_results screenshots.save','captureScreenshot',
+            'Callback or polled ImageData after presentation; save encoded bytes through granted filesystem access. Actor channels use copied bytes/ids.')
+
+
+def facade_exports(module, seen=()):
+    if module in seen: return set()
+    path=ROOT/'scua/lib'/(module+'.scua')
+    source=path.read_text()
+    functions=set(re.findall(r'^fn (\w+)\(',source,re.M))
+    tail=source[source.rfind('return {'):]
+    out=set()
+    for name,value in re.findall(r'(\w+)\s*=\s*([\w.]+)',tail):
+        if value in functions: out.add(module+'.'+name)
+        elif '.' in value:
+            other,member=value.split('.',1)
+            if value in facade_exports(other,(*seen,module)):out.add(module+'.'+name)
+    return out
+
+
+DESTINATIONS=NATIVE | set().union(*(facade_exports(module) for module in ('filesystem','file_stream','file_data','screenshots')))
 
 def snake(name):
     return re.sub(r'([a-z0-9])([A-Z])',r'\1_\2',re.sub(r'([A-Z]+)([A-Z][a-z])',r'\1_\2',name)).lower().lstrip('_')
@@ -190,13 +195,16 @@ def disposition(group, method):
     if cls == 'World' and method == 'update': candidates.insert(0,'world_step')
     if cls == 'Body' and method == 'getLinearVelocity': candidates.insert(0,'body_velocity')
     # Only modules with matching object context are eligible for automatic names.
-    if cls not in ('CompressedImageData','GlyphData','Rasterizer','GraphicsReadback','Mesh','SpriteBatch','Quad','Font','Decoder','RecordingDevice','Joystick','Cursor'):
+    if group in MODULE_GROUPS or cls in OBJECT_PARAMS:
         for candidate in candidates:
             target = f'love_{module}.{candidate}'
             if target in NATIVE:
+                # A same-named global function is not an object method. This used
+                # to map Texture:getDimensions to the WINDOW dimensions function.
+                first=NATIVE_PARAMS[target].split(',',1)[0].split(':',1)[0].strip()
+                if cls in OBJECT_PARAMS and first not in OBJECT_PARAMS[cls]:
+                    continue
                 return ('Named', target, 'SCUA signature; port argument shapes and zero-based indices explicitly.')
-    if group in FAMILIES:
-        return FAMILIES[group]
     return ('Gap', '', 'No reviewed mapping in this host. Do not assume compatibility.')
 
 
@@ -216,7 +224,7 @@ def render():
                 seen.add(key)
                 status,target,note=disposition(group,method)
                 for destination in target.split():
-                    assert destination in NATIVE,(group,method,destination)
+                    assert destination in DESTINATIONS,(group,method,destination)
                 counts[status]+=1
                 destinations=', '.join(f'`{v}`' for v in target.split()) or '—'
                 rows.append(f'| `{method}` | {status} | {destinations} | {note} |')
@@ -227,9 +235,9 @@ def render():
             f'Lists **{len(seen)} registered entries in {len(sections)} wrapper files**, including legacy aliases and internal functions. '
             'Inherited methods are listed at their declaring wrapper. This is a migration index, not a compatibility percentage.\n\n'
             '**Named/Adapted** identify a registered destination; signatures and defaults can differ. '
-            '**Family** identifies a consolidated record or language facility to inspect; individual Lua properties and overloads are not certified. '
+            '**Record** names source-reviewed fields with implementation links; the generator checks those keys in the named function. This is not a behavioral parity certificate. '
             '**Replacement/Host-owned/Excluded** describe deliberate boundaries. **Gap** is an exposed migration gap, not completed conversion. '
-            'Thread families use SCUA 0.38 concurrency replacements. No Lua source compatibility is promised.\n\n'
+            'Actors replace Lua thread/channel patterns. Class-wide Family fallbacks are disabled: an unreviewed method is a Gap. No Lua source compatibility is promised.\n\n'
             '| Disposition | Entries |\n| --- | ---: |\n'+
             '\n'.join(f'| {k} | {v} |' for k,v in sorted(counts.items()))+'\n\n'+
             '\n\n'.join(sections)+'\n')

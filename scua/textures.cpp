@@ -179,18 +179,20 @@ void decode_compressed(scua_ctx *ctx)
 }
 void compressed_info(scua_ctx *ctx)
 {
-    arity(ctx, 1);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 2)
+        throw std::invalid_argument("compressed_info expects data and optional mip level");
     auto c = compressed(ctx);
     if (!c)
         return;
+    int mip = supplied(ctx, 1) ? integer(ctx, 1, 0, c->getMipmapCount() - 1) : 0;
     const char *format = "unknown";
     love::getConstant(c->getFormat(), format);
     Record r(ctx);
     r.str("format", format);
-    r.boolean("linear",c->isLinear());
-    r.integer("width", c->getWidth());
-    r.integer("height", c->getHeight());
-    r.integer("slices", c->getSliceCount());
+    r.boolean("linear", c->isLinear());
+    r.integer("width", c->getWidth(mip));
+    r.integer("height", c->getHeight(mip));
+    r.integer("slices", c->getSliceCount(mip));
     r.integer("mipmaps", c->getMipmapCount());
     r.integer("size", c->getSize());
     r.done();
@@ -225,10 +227,12 @@ void new_compressed_texture(scua_ctx *ctx)
 }
 void texture_info(scua_ctx *ctx)
 {
-    arity(ctx, 1);
+    if (scua_arg_count(ctx) < 1 || scua_arg_count(ctx) > 2)
+        throw std::invalid_argument("texture_info expects a texture and optional mip level");
     auto t = texture(ctx);
     if (!t)
         return;
+    int mip = supplied(ctx, 1) ? integer(ctx, 1, 0, t->getMipmapCount() - 1) : 0;
     const char *type = "unknown", *format = "unknown", *mips = "unknown";
     Texture::getConstant(t->getTextureType(), type);
     love::getConstant(t->getPixelFormat(), format);
@@ -237,12 +241,15 @@ void texture_info(scua_ctx *ctx)
     r.str("type", type);
     r.str("format", format);
     r.str("mipmaps_mode", mips);
-    r.str("debug_name",t->getDebugName());
-    r.integer("width", t->getWidth());
-    r.integer("height", t->getHeight());
-    r.integer("pixel_width", t->getPixelWidth());
-    r.integer("pixel_height", t->getPixelHeight());
-    r.integer("layers", t->getSliceCount(0));
+    r.str("debug_name", t->getDebugName());
+    r.integer("width", t->getWidth(mip));
+    r.integer("height", t->getHeight(mip));
+    r.integer("pixel_width", t->getPixelWidth(mip));
+    r.integer("pixel_height", t->getPixelHeight(mip));
+    r.integer("depth", t->getDepth(mip));
+    r.integer("layer_count", t->getLayerCount());
+    r.integer("mip", mip);
+    r.integer("layers", t->getSliceCount(mip));
     r.integer("mipmaps", t->getMipmapCount());
     r.num("dpi_scale", t->getDPIScale());
     r.integer("msaa", t->getMSAA());
@@ -250,6 +257,15 @@ void texture_info(scua_ctx *ctx)
     r.boolean("render_target", t->isRenderTarget());
     r.boolean("compute_write", t->isComputeWritable());
     r.boolean("compressed", t->isCompressed());
+    r.boolean("linear", t->isFormatLinear());
+    auto views = scua_new_array(r.p, 0);
+    for (auto format : t->getViewFormats())
+    {
+        auto name = love::getPixelFormatName(format);
+        if (scua_array_push(r.p, views, scua_string(r.p, name, std::strlen(name))) != SCUA_OK)
+            throw std::runtime_error("texture view formats allocation failed");
+    }
+    r.set("view_formats", views);
     r.done();
 }
 void texture_format_supported(scua_ctx *ctx)
@@ -661,7 +677,8 @@ void registerTextures(scua_partition *p, Host &state)
             {"love_image", "decode_compressed", guarded<decode_compressed>,
              "decode_compressed(encoded: bytes) -> any",
              "Decode DDS/KTX/PVR/ASTC containers into managed compressed image data."},
-            {"love_image", "compressed_info", guarded<compressed_info>, "compressed_info(data: any) -> any",
+            {"love_image", "compressed_info", guarded<compressed_info>,
+             "compressed_info(data: any, mip: int = 0) -> any",
              "Get compressed format, dimensions, slices, mipmaps and size."},
             {"love_image", "compressed_bytes", guarded<compressed_bytes>,
              "compressed_bytes(data: any, layer: int, mipmap: int) -> bytes",
@@ -669,8 +686,9 @@ void registerTextures(scua_partition *p, Host &state)
             {"love_graphics", "new_compressed_texture", guarded<new_compressed_texture>,
              "new_compressed_texture(data: any, settings: any = nil) -> any",
              "Upload compressed blocks and mipmaps without CPU decompression."},
-            {"love_graphics", "texture_info", guarded<texture_info>, "texture_info(texture: any) -> any",
-             "Get texture dimensions, format, mipmaps, layers and usage."},
+            {"love_graphics", "texture_info", guarded<texture_info>,
+             "texture_info(texture: any, mip: int = 0) -> any",
+             "Get selected mip dimensions/depth, layer count, color space, view formats and usage."},
             {"love_graphics", "texture_format_supported", guarded<texture_format_supported>,
              "texture_format_supported(format: string, usages: any) -> bool",
              "Check sample, linear, rendertarget, computewrite and other native format usages."},

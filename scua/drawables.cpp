@@ -248,6 +248,31 @@ void texture_set_wrap(scua_ctx *ctx)
         t->texture->setSamplerState(state);
     }
 }
+void quad_info(scua_ctx *ctx)
+{
+    arity(ctx, 1);
+    auto q = quadArgument(ctx, 0);
+    if (!q)
+        return;
+    auto v = q->quad->getViewport();
+    Record r(ctx);
+    float position[] = {float(v.x), float(v.y)}, size[] = {float(v.w), float(v.h)};
+    float texture[] = {float(q->quad->getTextureWidth()), float(q->quad->getTextureHeight())};
+    r.set("position", scua_vec(r.p, position, 2));
+    r.set("size", scua_vec(r.p, size, 2));
+    r.set("texture_dimensions", scua_vec(r.p, texture, 2));
+    r.integer("layer", q->quad->getLayer());
+    r.done();
+}
+void quad_set_layer(scua_ctx *ctx)
+{
+    arity(ctx, 2);
+    auto q = quadArgument(ctx, 0);
+    if (!q)
+        return;
+    int layer = integer(ctx, 1, 0, q->texture->getLayerCount() - 1);
+    q->quad->setLayer(layer);
+}
 void quad_set_viewport(scua_ctx *ctx)
 {
     arity(ctx, 3);
@@ -257,9 +282,9 @@ void quad_set_viewport(scua_ctx *ctx)
     auto q = quadArgument(ctx, 0);
     if (q)
     {
-        if (pos[0] < 0 || pos[1] < 0 || size[0] <= 0 || size[1] <= 0 ||
-            pos[0] + size[0] > q->texture->getWidth() || pos[1] + size[1] > q->texture->getHeight())
-            throw std::invalid_argument("quad viewport exceeds texture");
+        if (std::abs(pos[0]) > 1e6 || std::abs(pos[1]) > 1e6 || size[0] <= 0 || size[1] <= 0 ||
+            size[0] > 1e6 || size[1] > 1e6)
+            throw std::invalid_argument("quad position/size exceeds supported range");
         q->quad->setViewport({pos[0], pos[1], size[0], size[1]});
     }
 }
@@ -308,6 +333,11 @@ void registerDrawables(scua_partition *p, Host &state)
              "texture_readback(texture: any) -> any", "texture readback."},
             {"love_graphics", "texture_set_wrap", guarded<texture_set_wrap>,
              "texture_set_wrap(texture: any, horizontal: string, vertical: string)", "texture set wrap."},
+            {"love_graphics", "quad_info", guarded<quad_info>, "quad_info(quad: any) -> any",
+             "Get viewport position/size, source dimensions and zero-based layer."},
+            {"love_graphics", "quad_set_layer", guarded<quad_set_layer>,
+             "quad_set_layer(quad: any, layer: int)",
+             "Select a zero-based source array layer for draw_quad."},
             {"love_graphics", "quad_set_viewport", guarded<quad_set_viewport>,
              "quad_set_viewport(quad: any, position: vec2, size: vec2)", "quad set viewport."},
         });

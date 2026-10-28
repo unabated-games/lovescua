@@ -200,8 +200,8 @@ fn shader_send_buffers(shader: any, name: string, buffers: any) end
 fn new_texture(settings: any, slices: any = nil) -> any end
 -- Upload compressed blocks and mipmaps without CPU decompression.
 fn new_compressed_texture(data: any, settings: any = nil) -> any end
--- Get texture dimensions, format, mipmaps, layers and usage.
-fn texture_info(texture: any) -> any end
+-- Get selected mip dimensions/depth, layer count, color space, view formats and usage.
+fn texture_info(texture: any, mip: int = 0) -> any end
 -- Check sample, linear, rendertarget, computewrite and other native format usages.
 fn texture_format_supported(format: string, usages: any) -> bool end
 -- Read a texture subresource/rectangle into managed ImageData.
@@ -278,6 +278,8 @@ fn shader_has_uniform(shader: any, name: string) -> bool end
 fn shader_send_texture(shader: any, name: string, texture: any) end
 -- Send a scalar or vector uniform.
 fn shader_send(shader: any, name: string, value: any) end
+-- Send vec3/vec4 color or color array; clamp channels and convert RGB to linear when gamma correction is enabled.
+fn shader_send_color(shader: any, name: string, color: any) end
 -- Send an array of scalars/vectors or flat row-major matrices, maximum 1024 elements.
 fn shader_send_array(shader: any, name: string, values: any) end
 -- Send a flat 2x2..4x4 matrix, row-major by default.
@@ -442,6 +444,10 @@ fn texture_replace_pixels(texture: any, pixels: any, x: int, y: int) end
 fn texture_readback(texture: any) -> any end
 -- texture set wrap.
 fn texture_set_wrap(texture: any, horizontal: string, vertical: string) end
+-- Get viewport position/size, source dimensions and zero-based layer.
+fn quad_info(quad: any) -> any end
+-- Select a zero-based source array layer for draw_quad.
+fn quad_set_layer(quad: any, layer: int) end
 -- quad set viewport.
 fn quad_set_viewport(quad: any, position: vec2, size: vec2) end
 -- Attach a retained vertex buffer member; supply at least four vertices per sprite.
@@ -486,3 +492,7 @@ fn batch_texture(batch: any) -> any end
 fn batch_set_texture(batch: any, texture: any) end
 -- Append or replace an array-texture sprite.
 fn batch_layer(batch: any, layer: int, position: vec2, rotation: float = 0, scale: vec2 = nil, index: int = nil) -> int end
+-- Capture the next presented frame. Callback receives ImageData after presentation; nil callback queues a polled result.
+fn capture_screenshot(callback: any = nil) -> int end
+-- Drain completed screenshot records {id,image,error}; at most 8 outstanding captures.
+fn screenshot_results() -> any end

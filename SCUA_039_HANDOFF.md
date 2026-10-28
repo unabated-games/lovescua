@@ -1,6 +1,7 @@
 > Resolved on 2026-10-25: SCUA PR #833 makes the compiled script own its source.
 > LoveSCUA now pins PR head `85814a6491eb2db3d23dce79efc0c93dfb6024a1` (still
 > reporting 0.38.0 / ABI 3). The original report below is historical.
+> A separate nil-default typed-record observation was added on 2026-10-28 at the end.
 
 # LoveSCUA → SCUA: follow-up verification and file-loaded fault names
 
@@ -84,3 +85,30 @@ window-free suites passed: 18 checks with audio and 16 without audio. No windows
 were opened.
 
 This document is for manual forwarding. No external issue or message was sent.
+
+## Additional integration observation — 2026-10-28
+
+Against the same pinned SDK, a typed return record with a nil-default `any` field
+fails return validation. This occurs without graphics, actors or native calls:
+
+```scua
+record Capture { id: int = 0, done: bool = false, result: any = nil }
+fn make() -> Capture
+  let request: Capture = {}
+  return request
+end
+fn load()
+  match pcall(fn() return make() end)
+    Ok(value) -> print(value)
+    Error(reason) -> print(reason)
+  end
+end
+```
+
+Run as a file with `./build/lovescua --headless /tmp/repro.scua`. This reports:
+`return value of 'make': value.result is missing; use
+parse(value, Capture) to fill its default`, with path `value.result` and field
+`result`. Please confirm whether a record constructed with `{}` should already
+have satisfied this default when returned as Capture. LoveSCUA's screenshot helper
+works around it with `result: any = Error("capture pending")`; no SDK change is
+needed to use the feature. No upstream checkout changes or external messages were made.

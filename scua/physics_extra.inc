@@ -630,6 +630,51 @@ Record shapeSnapshot(scua_ctx *ctx, World *w, b2Fixture *f)
     r.set("points", points);
     return r;
 }
+void body_configure(scua_ctx *ctx)
+{
+    arity(ctx, 2);
+    auto b = body(ctx);
+    if (!b)
+        return;
+    Options o(ctx, 1);
+    auto native = b->body;
+    float m = b->owner->meter;
+    auto position = physicsVectorField(o, "position", native->GetPosition(), m);
+    auto velocity = physicsVectorField(o, "velocity", native->GetLinearVelocity(), m);
+    double angle = o.num("angle", native->GetAngle());
+    double angular = o.num("angular_velocity", native->GetAngularVelocity());
+    double linearDamping = o.num("linear_damping", native->GetLinearDamping());
+    double angularDamping = o.num("angular_damping", native->GetAngularDamping());
+    if (std::abs(angle) > 1e6 || std::abs(angular) > 1e6 || linearDamping < 0 || linearDamping > 1e6 ||
+        angularDamping < 0 || angularDamping > 1e6)
+        throw std::invalid_argument("invalid body state or damping");
+    b2MassData mass;
+    native->GetMassData(&mass);
+    mass.mass = o.num("mass", mass.mass);
+    mass.I = o.num("inertia", mass.I * double(m) * m) / (double(m) * m);
+    mass.center = physicsVectorField(o, "local_center", mass.center, m);
+    bool custom = o.has("mass") || o.has("inertia") || o.has("local_center");
+    if (custom &&
+        (mass.mass <= 0 || mass.mass > 1e6 || mass.I < 0 || mass.I * double(m) * m > 1e12 ||
+         (mass.I > 0 && !native->IsFixedRotation() && mass.I <= mass.mass * b2Dot(mass.center, mass.center))))
+        throw std::invalid_argument("invalid body mass/inertia/local center");
+    // Validate every requested field before applying any mutation.
+    if (o.has("position") || o.has("angle"))
+        native->SetTransform(position, angle);
+    if (custom)
+    {
+        native->SetMassData(&mass);
+        b->state->customMass = native->GetType() == b2_dynamicBody;
+    }
+    if (o.has("velocity"))
+        native->SetLinearVelocity(velocity);
+    if (o.has("angular_velocity"))
+        native->SetAngularVelocity(angular);
+    if (o.has("linear_damping"))
+        native->SetLinearDamping(linearDamping);
+    if (o.has("angular_damping"))
+        native->SetAngularDamping(angularDamping);
+}
 void collider_shape(scua_ctx *ctx)
 {
     arity(ctx, 1);
@@ -1246,6 +1291,10 @@ void registerPhysicsExtra(scua_partition *p, Host &state)
              "Set checked mass, local center and inertia in pixel units."},
             {"love_physics", "body_reset_mass_data", guarded<body_reset_mass_data>,
              "body_reset_mass_data(body: any)", "Restore mass data from collider densities."},
+            {"love_physics", "body_configure", guarded<body_configure>,
+             "body_configure(body: any, settings: any)",
+             "Validate and set position/angle/velocities, damping and custom mass fields as one serial "
+             "operation."},
             {"love_physics", "body_mass_data", guarded<body_mass_data>, "body_mass_data(body: any) -> any",
              "Get mass, local center, inertia and custom-mass state."},
             {"love_physics", "body_local_vector", guarded<body_vector<true>>,

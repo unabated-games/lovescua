@@ -300,7 +300,17 @@ void buffer_info(scua_ctx *ctx)
     r.integer("bytes", b->getSize());
     r.integer("length", b->getArrayLength());
     r.integer("stride", b->getArrayStride());
-    r.str("debug_name",b->getDebugName());
+    r.str("debug_name", b->getDebugName());
+    auto uses = scua_new_array(r.p, 0);
+    for (int i = 0; i < BUFFERUSAGE_MAX_ENUM; ++i)
+        if (b->getUsageFlags() & (1u << i))
+        {
+            const char *name = "unknown";
+            getConstant(BufferUsage(i), name);
+            if (scua_array_push(r.p, uses, scua_string(r.p, name, std::strlen(name))) != SCUA_OK)
+                throw std::runtime_error("buffer usage allocation failed");
+        }
+    r.set("usages", uses);
     const char *usage = "unknown";
     getConstant(b->getDataUsage(), usage);
     r.str("data_usage", usage);

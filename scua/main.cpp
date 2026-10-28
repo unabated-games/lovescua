@@ -34,7 +34,8 @@ struct Options
     std::string renderer = "metal";
     uint64_t frames = 0;
     double fixedDt = 0;
-    bool noInput = false, check = false, headless = false, watch = false, reportResources = false;
+    bool noInput = false, check = false, headless = false, watch = false, reportResources = false,
+         gammaCorrect = false;
     lovescua::JobSettings jobs;
     std::vector<std::string> mounts;
 };
@@ -55,7 +56,8 @@ std::filesystem::path runtimeModules()
 void usage()
 {
     std::cout << "Usage: lovescua [--frames N] [--fixed-dt SECONDS] [--renderer metal|opengl]\n"
-                 "                [--screenshot FILE.png] [--verify] [--no-input] GAME.scua|DIRECTORY\n"
+                 "                [--screenshot FILE.png] [--verify] [--no-input] [--gamma-correct] "
+                 "GAME.scua|DIRECTORY\n"
                  "                [--mount RESOURCE_DIRECTORY_OR_PACK] (repeatable)\n"
                  "                [--save-dir DIRECTORY] [--user-id APP_ID] (opt-in saves)\n"
                  "                [--watch] (reload changed SCUA files; preserve snapshot/restore state)\n"
@@ -91,6 +93,7 @@ struct DestroyPartition
             scua_unpin_global(partition, event.second);
         }
         host->pendingEvents.clear();
+        lovescua::cancelScreenshots(*host);
         if (scua_partition_free_checked(partition) != SCUA_OK || host->liveImages || host->liveQuads ||
             host->liveObjects)
         {
@@ -344,6 +347,8 @@ int main(int argc, char **argv)
                 options.jobs.order = value();
             else if (arg == "--renderer")
                 options.renderer = value();
+            else if (arg == "--gamma-correct")
+                options.gammaCorrect = true;
             else if (arg == "--screenshot")
                 options.screenshot = value();
             else if (arg == "--write-decls")
@@ -380,6 +385,7 @@ int main(int argc, char **argv)
 
         if (!options.jobs.maxNs && !options.jobs.maxTurns)
             throw std::invalid_argument("actor scheduling needs a time or turn limit");
+        love::graphics::setGammaCorrect(options.gammaCorrect);
         options.reportResources = verify;
         lovescua::Host host;
         host.ignoreInput = options.noInput;
@@ -786,7 +792,9 @@ int main(int argc, char **argv)
                     capture.data = &screenshot;
                     graphics->captureScreenshot(capture);
                 }
+                lovescua::submitScreenshots(game->host);
                 graphics->present(nullptr);
+                lovescua::deliverScreenshots(game->host);
                 ++frames;
                 // GPU memory does not itself create arena pressure. Collect dropped
                 // resource wrappers once per 60 frames, and drain after presentation.

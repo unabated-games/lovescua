@@ -39,6 +39,7 @@ From this repository:
 ./build/lovescua examples/audio_controls
 ./build/lovescua examples/events
 ./build/lovescua --save-dir "$PWD/build/demo-saves" examples/filesystem
+./build/lovescua --save-dir "$PWD/build/demo-saves" examples/compatibility
 ./build/lovescua examples/platform
 ./build/lovescua examples/actors
 ./build/lovescua --workers 4 examples/actors
@@ -217,7 +218,7 @@ familiar `love` facade exports `graphics`, `window`, `keyboard`, `mouse`, `event
 | Audio/sound | editable PCM, whole/incremental WAV/Vorbis/FLAC/MP3/tracker decoding, static/stream/queued sources, routing/getters, groups, device/HRTF controls; capture bindings | `examples/audio_controls`, `examples/audio`, `examples/audio_queue` |
 | Physics | worlds, bodies, circle/box/polygon/edge/chain fixtures, filtering, forces, all joint families, motor/limit/spring controls, shared aliases, mass/shape properties, persistent contacts, filter/query callbacks and sorted ray hits | `examples/physics_controls`, `examples/physics`, `examples/contacts`, `examples/joints` |
 | Video | managed in-memory Theora decoding, explicit deterministic stepping, seeking, native YUV rendering, embedded Vorbis audio and external source synchronization | `examples/video`, `examples/audio_controls` |
-| Files | SCUA resources/packs, explicit user saves, JSON, atomic replacement, directory operations | `examples/filesystem` |
+| Files | SCUA resources/packs, explicit user saves, named bytes, rooted streams, seeking, buffering, JSON and atomic replacement | `examples/filesystem`, `scua/test_streams.py` |
 | Input/platform | polling, custom/system cursors, text input, callbacks, gamepad mapping/vibration/sensor controls, standalone accelerometer/gyroscope polling, touch, full window settings, dialogs/clipboard/URL, sensor events, window/display and timer/system queries | `examples/platform`, `examples/events`, native virtual-input test |
 
 Import optional native modules in a game as `import love_audio as audio` and
@@ -836,7 +837,7 @@ functions are supplied by `lovescua`.
 The macOS feature batch adds CPU image formats/operations/encoders, desktop settings
 and asynchronous dialogs, sensor event delivery, logical saves, staged hot reload,
 optional resource types and an upstream migration audit. The current registry has
-710 native functions in 22 modules. [Runtime details](SCUA_RUNTIME.md) describe the
+717 native functions in 22 modules. [Runtime details](SCUA_RUNTIME.md) describe the
 interfaces and rollback/typing limits; [validation](SCUA_VALIDATION.md) records what
 was actually checked.
 
@@ -849,11 +850,18 @@ was actually checked.
   CoreAudio output was reopened silently; this is not a listening test.
 - Windows/Linux builds, distribution, notarization and application bundles remain
   outside the authorized conversion batch.
-- Lua overloads, ambient filesystem/File objects, raw pointers and exact Lua Data
+- Rooted file streams, named file data, runtime screenshot callbacks/polling and
+  gamma-aware shader colours are implemented. `examples/compatibility` checks the
+  affected graphics paths; `--gamma-correct` selects gamma correction before
+  renderer initialization. [Runtime contracts](SCUA_RUNTIME.md#rooted-file-streams)
+  describe the stream and capture limits.
+- Lua overloads, ambient filesystem paths, raw pointers and exact Lua Data
   binary-format compatibility are deliberately replaced or excluded. The
   [1,090-entry migration audit](SCUA_COMPATIBILITY.md) lists per-method destinations
-  and boundaries. Consolidated record families are not certified parity for every
-  Lua property. Graphics capabilities continue to depend on the renderer.
+  and boundaries. The former 402 blanket family mappings have been replaced with
+  explicit methods, record fields and source links. No entries currently lack a
+  destination or stated boundary; this does not certify every Lua overload or
+  default. Graphics capabilities continue to depend on the renderer.
 
 Existing Lua games need their scripts ported to SCUA. The examples are runnable
 integration examples, not a claim that the entire upstream example/test suite has

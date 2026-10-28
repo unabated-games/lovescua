@@ -5,7 +5,7 @@
 -- Decode DDS/KTX/PVR/ASTC containers into managed compressed image data.
 fn decode_compressed(encoded: bytes) -> any end
 -- Get compressed format, dimensions, slices, mipmaps and size.
-fn compressed_info(data: any) -> any end
+fn compressed_info(data: any, mip: int = 0) -> any end
 -- Copy compressed block bytes for a subresource.
 fn compressed_bytes(data: any, layer: int, mipmap: int) -> bytes end
 -- Create zeroed CPU image data in a checked native format, optionally from exact raw bytes.

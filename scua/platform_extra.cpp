@@ -290,6 +290,13 @@ void hardware_info(scua_ctx *c)
     r.str("audio_driver", SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "unknown");
     r.done();
 }
+void has_background_music(scua_ctx *c)
+{
+    arity(c, 0);
+    // Upstream System::hasBackgroundMusic probes Android/iOS and returns false
+    // on desktop platforms (src/modules/system/System.cpp).
+    scua_return_bool(c, false);
+}
 void vibrate(scua_ctx *c)
 {
     arity(c, 1);
@@ -643,6 +650,9 @@ void registerPlatformExtras(scua_partition *p, Host &s)
           "Open an http/https/mailto URL with the default application."},
          {"love_system", "preferred_locales", guarded<locales>, "preferred_locales() -> any",
           "Read preferred locale names."},
+         {"love_system", "has_background_music", guarded<has_background_music>,
+          "has_background_music() -> bool",
+          "Return false, matching upstream desktop behavior; background-music detection is mobile-only."},
          {"love_system", "vibrate", guarded<vibrate>, "vibrate(seconds: float) -> bool",
           "Report unavailable system vibration on the macOS host; gamepad rumble is separate."}});
 }

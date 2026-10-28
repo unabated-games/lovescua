@@ -205,7 +205,7 @@ fn draw() end
             ("missing asset", 'assets.image("res:missing.png")', "could not load image"),
             ("invalid image", 'assets.image("res:invalid.png")', "decode"),
             ("resource traversal", 'assets.image("res:../outside.png")', "could not load image"),
-            ("quad bounds", 'love.graphics.new_quad(image, vec2(60, 0), vec2(8, 8))', "must fit inside"),
+            ("quad range", 'love.graphics.new_quad(image, vec2(1000001, 0), vec2(8, 8))', "supported range"),
             ("zero quad", 'love.graphics.new_quad(image, vec2(0, 0), vec2(0, 8))', "positive size"),
             ("invalid filter", 'love.graphics.set_filter(image, "bad")', "filter must be"),
             ("wrong resource type", 'love.graphics.quad_dimensions(image)', "type"),
